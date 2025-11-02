@@ -1,0 +1,924 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>VØLAN Store</title>
+<link rel="preconnect" href="https://images.unsplash.com">
+<style>
+  :root {
+    --bg: #050505;
+    --panel: rgba(15, 15, 15, 0.85);
+    --accent: #0a66ff;
+    --accent-2: #0066d6;
+    --muted: #9aa0a6;
+    --card: #171717;
+    --text: #f5f5f5;
+    --danger: #e74c3c;
+    --glass: rgba(255, 255, 255, 0.04);
+    --radius: 14px;
+    --shadow: 0 8px 30px rgba(2, 6, 10, 0.6);
+    --container: 1100px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial;
+    background: linear-gradient(180deg, #020202 0%, #061010 100%);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Modal widths for all main modals */
+  #cartModal .modal-inner,
+  #checkoutModal .modal-inner,
+  #optionModal .modal-inner,
+  #loginModal .modal-inner {
+    max-width: 760px !important;
+    width: 760px;
+  }
+
+  /* HERO */
+  #hero h1 { font-size: 38px; margin: 0; font-weight: 800; letter-spacing: 2px; }
+  #hero p { color: rgba(255,255,255,0.85); margin: 0; }
+  .hero-actions { display: flex; gap: 12px; }
+  .btn-hero {
+    padding: 12px 20px;
+    border-radius: 12px;
+    border: 0;
+    font-weight: 800;
+    cursor: pointer;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    color: #fff;
+    box-shadow: 0 8px 30px rgba(10, 100, 50, 0.12);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+  .btn-hero:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 40px rgba(10, 100, 50, 0.3);
+  }
+  .btn-hero.secondary {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.06);
+    color: var(--text);
+  }
+
+  .top-announcement {
+    text-align: center;
+    padding: 8px 12px;
+    font-size: 13px;
+    background: rgba(255,255,255,0.02);
+    color: var(--muted);
+  }
+
+  header.site-header {
+    position: sticky;
+    top: 0;
+    z-index: 2000;
+    backdrop-filter: blur(8px);
+    background: linear-gradient(90deg, rgba(6,8,10,0.6), rgba(8,12,14,0.6));
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .left-group { display: flex; align-items: center; gap: 14px; }
+  .logo { display: flex; align-items: center; gap: 10px; cursor: pointer; text-decoration: none; }
+  .logo-badge {
+    width: 52px; height: 44px; border-radius: 10px;
+    background: linear-gradient(180deg, #0b0b0b, #111);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 900; color: #bfbfbf;
+  }
+  .brand-name { font-weight: 800; letter-spacing: 2px; }
+
+  .nav-links { display: flex; gap: 12px; align-items: center; }
+  .nav-links a {
+    color: var(--muted);
+    text-decoration: none;
+    padding: 8px 10px;
+    border-radius: 8px;
+    transition: color 0.2s ease, background 0.2s ease;
+  }
+  .nav-links a:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+
+  .search-inline {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,0.02);
+    padding: 6px 8px; border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.02);
+  }
+  .search-inline input {
+    background: transparent; border: 0; color: var(--text);
+    outline: none; width: 220px; padding: 6px;
+  }
+
+  .header-actions { display: flex; align-items: center; gap: 12px; }
+  .icon-btn {
+    background: transparent; border: 0; color: var(--text);
+    font-size: 18px; cursor: pointer; padding: 8px; border-radius: 8px;
+    transition: background 0.2s ease;
+  }
+  .icon-btn:hover { background: rgba(255,255,255,0.05); }
+
+  .cart-wrap { position: relative; }
+  .cart-badge {
+    position: absolute; top: -6px; right: -6px;
+    background: var(--danger); color: #fff;
+    border-radius: 999px; padding: 4px 7px; font-size: 12px;
+  }
+
+  /* Content */
+  .brand-title {
+    text-align: center;
+    margin: 28px 12px;
+    font-weight: 900;
+    font-size: 48px;
+    letter-spacing: 3px;
+    color: transparent;
+    background: linear-gradient(90deg,#fff,#bdbdbd);
+    -webkit-background-clip: text;
+  }
+
+  .container { max-width: var(--container); margin: 0 auto; padding: 20px; }
+
+  .product-grid {
+    display: grid;
+    grid-template-columns: repeat(3,1fr);
+    gap: 22px;
+    margin-top: 18px;
+  }
+
+  .card {
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    border-radius: 18px;
+    padding: 14px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 260px;
+    transition: transform .18s ease, box-shadow .18s ease;
+  }
+  .card:hover { transform: translateY(-6px); box-shadow: 0 18px 40px rgba(2,6,10,0.7); }
+
+  .thumb { height: 160px; border-radius: 12px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #111; }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  .prod-title { font-weight: 800; font-size: 15px; }
+  .price { color: var(--muted); font-weight: 700; }
+
+  .card-actions { display: flex; gap: 8px; margin-top: auto; }
+  .btn {
+    border: 0; padding: 10px 14px; border-radius: 12px;
+    cursor: pointer; font-weight: 700; font-size: 14px;
+  }
+  .btn-cart { background: linear-gradient(90deg,var(--accent),var(--accent-2)); color: #fff; }
+  .btn-option { background: transparent; border: 1px solid rgba(255,255,255,0.04); color: var(--text); }
+  .small { font-size: 13px; color: var(--muted); }
+  .muted { color: var(--muted); }
+
+  /* MODALS */
+  .modal {
+    display: none; 
+    position: fixed; 
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 3000; 
+    padding: 28px; 
+    overflow: auto;
+    align-items: flex-start; 
+    justify-content: center; 
+    display: flex;
+  }
+
+  .modal-inner {
+    background: linear-gradient(180deg, rgba(20,20,20,0.85), rgba(10,10,10,0.95));
+    border-radius: 20px; padding: 26px;
+    margin: 40px auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+    backdrop-filter: blur(6px);
+    position: relative;
+    opacity: 0; transform: translateY(18px);
+    transition: opacity .22s ease, transform .22s ease;
+  }
+  .modal.show .modal-inner { opacity: 1; transform: translateY(0); }
+
+  /* LOGIN MODAL */
+  #loginModal .modal-inner {
+    background: linear-gradient(180deg, rgba(20,20,20,0.85), rgba(10,10,10,0.95));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px;
+    gap: 18px;
+    color: var(--text);
+  }
+
+  #loginModal h2 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: 1px;
+  }
+
+  #loginModal input {
+    width: 100%;
+    background: #0b0b0b;
+    border: 1px solid rgba(255,255,255,0.08);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+  }
+
+  #loginModal button {
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    color: #fff;
+    border: 0;
+    border-radius: 12px;
+    padding: 12px 18px;
+    font-weight: 700;
+    cursor: pointer;
+    width: 100%;
+  }
+
+  #loginModal button:hover {
+    box-shadow: 0 6px 20px rgba(10,100,200,0.25);
+  }
+
+  /* Option Modal Layout */
+  .option-square {
+    display: grid; grid-template-columns: 380px 1fr;
+    gap: 24px; align-items: start;
+  }
+
+  .carousel {
+    border-radius: 14px; overflow: hidden;
+    background: #0b0b0b;
+    border: 1px solid rgba(255,255,255,0.03);
+    position: relative; height: 380px;
+    display: flex; flex-direction: column;
+  }
+  .carousel-main { flex: 1; display: flex; align-items: center; justify-content: center; background: #0b0b0b; }
+  .carousel-main img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  .carousel-thumbs { display: flex; gap: 8px; padding: 12px; overflow: auto; }
+  .thumb-small {
+    width: 68px; height: 48px; border-radius: 8px;
+    flex: 0 0 auto; overflow: hidden;
+    border: 2px solid transparent; cursor: pointer; opacity: .9;
+    transition: transform 0.15s ease, border 0.15s ease;
+  }
+  .thumb-small:hover { transform: scale(1.05); }
+  .thumb-small.active { border-color: var(--accent); transform: scale(1.03); }
+
+  .option-details h2 { margin: 0 0 6px 0; font-size: 20px; }
+  .option-details .price { margin-bottom: 12px; }
+
+  .pill-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+  .pill {
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.03);
+    cursor: pointer;
+    transition: transform .12s ease, box-shadow .12s ease;
+    user-select: none;
+  }
+  .pill:hover { transform: translateY(-3px); }
+  .pill.selected {
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    color: #fff; border-color: transparent;
+    box-shadow: 0 8px 26px rgba(6,90,200,0.18);
+  }
+
+  .option-actions { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
+
+  .checkout-grid { display: flex; flex-direction: column; gap: 10px; }
+
+  input, select, textarea {
+    background: #0b0b0b; border: 0; padding: 10px;
+    border-radius: 8px; color: var(--text); outline: none;
+  }
+
+  .go-back {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.03);
+    padding: 8px 12px;
+    border-radius: 12px; color: var(--text);
+  }
+
+  .cart-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+  .cart-item {
+    background: #121212; padding: 10px;
+    border-radius: 8px; display: flex;
+    justify-content: space-between; gap: 8px; align-items: center;
+  }
+  .qty-input { width: 60px; padding: 6px; border-radius: 6px; border: 0; background: #111; color: var(--text); }
+  .btn-delete { background: var(--danger); color: #fff; border: 0; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+
+  .modal-close {
+    position: absolute; right: 16px; top: 12px;
+    font-size: 18px; cursor: pointer;
+    background: transparent; border: 0; color: var(--text);
+  }
+
+  #hero {
+    position: fixed;
+    inset: 0;
+    background: linear-gradient(180deg, #020202 0%, #061010 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    text-align: center;
+    z-index: 9999;
+    opacity: 1;
+  }
+
+  #mainSite { transition: none !important; }
+
+  @media (max-width: 1100px) {
+    .product-grid { grid-template-columns: repeat(2,1fr); }
+    .option-square { grid-template-columns: 1fr; }
+    .carousel { height: 320px; }
+  }
+
+  @media (max-width: 700px) {
+    .product-grid { grid-template-columns: 1fr; }
+    .search-inline input { width: 120px; }
+    .brand-title { font-size: 36px; }
+  }
+
+  #cartModal,
+  #optionModal,
+  #checkoutModal,
+  #loginModal,
+  #searchModal,
+  #blackScreen,
+  #fadeOverlay {
+    display: none;
+  }
+</style>
+
+</head>
+<body>
+  <!-- HERO -->
+  <div id="hero" role="dialog" aria-modal="true">
+    <h1>VØLAN Collective</h1>
+    <p class="muted">Curated streetwear drops — Lagos & worldwide</p>
+    <div class="hero-actions">
+      <button class="btn-hero" onclick="enterSite()">Explore Our World</button>
+      <button class="btn-hero secondary" onclick="enterSite()">Skip Intro</button>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div id="mainSite" style="display:none">
+    <div class="top-announcement">Free shipping over ₦50,000 • Cashless & express options available</div>
+
+    <header class="site-header" role="banner">
+      <div class="left-group">
+        <a class="logo" href="#" onclick="event.preventDefault();window.scrollTo({top:0,behavior:'smooth'})">
+          <div class="logo-badge">VØ</div>
+          <div class="brand-name">VØLAN</div>
+        </a>
+
+        <nav class="nav-links" aria-label="primary">
+          <a href="#">Shop</a>
+          <a href="#">About</a>
+          <a href="#">Contact</a>
+        </nav>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="search-inline" role="search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21 21l-4.35-4.35" stroke="#9aa0a6" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="11" cy="11" r="6" stroke="#9aa0a6" stroke-width="1.6"/></svg>
+          <input id="globalSearch" placeholder="Search products..." aria-label="Search products">
+        </div>
+
+        <div class="header-actions">
+          <button id="loginBtn" class="icon-btn" title="Login">👤</button>
+          <button id="cartBtn" class="icon-btn cart-wrap" title="Cart">🛒
+            <span id="cartCount" class="cart-badge">0</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="container" role="main">
+      <div class="brand-title">VØLAN</div>
+      <section class="product-grid" id="productGrid" aria-live="polite"></section>
+    </main>
+  </div>
+
+  <!-- LOGIN MODAL -->
+  <div id="loginModal" class="modal" aria-hidden="true" onclick="overlayClose(event,'loginModal')">
+    <div class="modal-inner" role="dialog" aria-modal="true" style="max-width:420px;background:#fff;color:#111;">
+      <button class="modal-close" onclick="closeModal('loginModal')">✖</button>
+      <h3 style="margin-top:0">Login</h3>
+      <label class="small">Full name</label>
+      <input id="loginFullname" type="text" placeholder="Your full name" style="margin-top:8px"/>
+      <label class="small">Email</label>
+      <input id="loginEmail" type="email" placeholder="you@example.com" style="margin-top:8px"/>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+        <input id="rememberMe" type="checkbox"/><label class="small" style="margin:0">Remember Me</label>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn-cart btn" onclick="doLogin()">Login</button>
+        <button class="go-back" onclick="closeModal('loginModal')">Exit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CART MODAL -->
+  <div id="cartModal" class="modal" aria-hidden="true" onclick="overlayClose(event,'cartModal')">
+    <div class="modal-inner" role="dialog" aria-modal="true" style="max-width:780px">
+      <button class="modal-close" onclick="closeModal('cartModal')">✖</button>
+      <h2>Your Cart</h2>
+      <div id="cartList" class="cart-list"></div>
+      <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+        <button class="btn-cart btn" onclick="checkout()">Checkout</button>
+        <button class="go-back" onclick="closeModal('cartModal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHECKOUT MODAL -->
+  <div id="checkoutModal" class="modal" aria-hidden="true" onclick="overlayClose(event,'checkoutModal')">
+    <div class="modal-inner" role="dialog" aria-modal="true" style="max-width:720px;position:relative;">
+      <button class="modal-close" onclick="closeModal('checkoutModal')">✖</button>
+      <h2>Checkout</h2>
+      <div class="checkout-grid">
+        <label>Name <input id="checkoutName" /></label>
+        <label>Email <input id="checkoutEmail" type="email" /></label>
+        <label>Address <input id="checkoutAddress" /></label>
+        <label>State <input id="checkoutState" /></label>
+
+        <p>Delivery method:</p>
+        <label><input type="radio" name="delivery" value="normal" checked onchange="updateDeliveryFee()"> Normal Delivery (₅–7 days) — ₦3,000</label>
+        <label><input type="radio" name="delivery" value="express" onchange="updateDeliveryFee()"> Express Delivery (3–5 days) — ₦5,000</label>
+
+        <p>Payment</p>
+        <label><input type="radio" name="pay" value="transfer" checked/> Pay with Transfer</label>
+        <label><input type="radio" name="pay" value="opay"/> Pay with OPay</label>
+
+        <div id="opayBox" style="display:none;padding:8px;background:#0c0c0c;border-radius:8px;color:var(--text)">
+          <strong>OPay account</strong><br/>
+          08023276137<br/>
+          ABAYOMI HAROUN ADENIRAN
+        </div>
+
+        <div style="margin-top:12px">
+          <h4>Order Summary</h4>
+          <div id="orderSummary" class="small muted"></div>
+          <div style="margin-top:10px;display:flex;gap:10px">
+            <button class="btn-cart btn" onclick="placeOrder()">Place Order (Send to WhatsApp)</button>
+            <button class="go-back" onclick="closeModal('checkoutModal')">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SELECT OPTIONS (square) -->
+  <div id="optionModal" class="modal" aria-hidden="true" onclick="overlayClose(event,'optionModal')">
+    <div class="modal-inner" role="dialog" aria-modal="true" style="max-width:920px">
+      <button class="modal-close" onclick="closeModal('optionModal')">✖</button>
+      <div class="option-square">
+        <div class="carousel" id="optCarousel">
+          <div class="carousel-main" id="carouselMain"><!-- image inserted by JS --></div>
+          <div class="carousel-thumbs" id="carouselThumbs" aria-hidden="false"></div>
+        </div>
+
+        <div class="option-details" id="optionDetails"><!-- built by JS --></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ============================
+   PRODUCT DATA (images provided by you)
+   ============================ */
+const PRODUCTS = [
+  {
+    id: "skullcap",
+    name: "VOLAN Skull Cap",
+    price: 10000,
+    colors: ["Gray","Black"],
+    sizes: ["S","M","L"],
+    imagesByColor: {
+      "Gray": ["https://images.unsplash.com/photo-1556306535-0f09a537f0a3?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&q=80&w=1170"],
+      "Black": ["https://images.unsplash.com/photo-1591818343198-4ff334074580?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&q=80&w=687"]
+    }
+  },
+  {
+    id: "longjersey",
+    name: "Fly Above The System Longsleeve",
+    price: 35000,
+    colors: ["White","Black"],
+    sizes: ["M","L","XL"],
+    imagesByColor: {
+      "White": ["https://images.unsplash.com/photo-1669791777201-f297000cbd8a?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&q=80&w=666"],
+      "Black": ["https://images.unsplash.com/photo-1525147666999-5225a063de8b?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&q=80&w=1170"]
+    }
+  },
+  {
+    id: "baggypants",
+    name: "Baggy Sweatpants",
+    price: 25000,
+    colors: ["Black","White"],
+    sizes: ["M","L","XL"],
+    imagesByColor: {
+      "Black": ["https://images.unsplash.com/photo-1590330297626-d7aff25a0431?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&q=80&w=687"],
+      "White": ["https://images.unsplash.com/photo-1588117260148-b47818741c74?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&q=80&w=687"]
+    }
+  },
+  {
+    id: "tubetop",
+    name: "Tube Top",
+    price: 10000,
+    colors: ["Red","Pink"],
+    sizes: ["S","M"],
+    imagesByColor: {
+      "Red": ["https://imgs.search.brave.com/33NtS48Mfd5BjCottWJDhXMm2dNbO5tCfP2Y6iiQedI/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9zaG9wc3VoaS5jb20vY2RuL3Nob3AvZmlsZXMv/UGlua1ByaXR1YmV0/b3A2LndlYnA_dj0x/NzU3ODU4NzgxJndp/ZHRoPTM4NDA"],
+      "Pink": ["https://imgs.search.brave.com/wRNBYXF1KkRv1hU2YP2RDvuWxQuECmy3YrqFw84qZm8/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly93d3cu/cGFjc3VuLmNvbS9k/dy9pbWFnZS92Mi9B/QUpFX1BSRC9vbi9k/ZW1hbmR3YXJlLnN0/YXRpYy8tL1NpdGVz/LXBhY3N1bl9zdG9y/ZWZyb250X2NhdGFs/b2cvZGVmYXVsdC9k/d2FiMDlkNGVjL3By/b2R1Y3RfaW1hZ2Vz/LzA3MDQ2MDE2MDE2/MTJORVdfMDBfMDY2/LmpwZz9zdz0zMDA"]
+    }
+  },
+  {
+    id: "palazzo",
+    name: "Palazzo Sweatpants",
+    price: 18000,
+    colors: ["Pink","Red"],
+    sizes: ["S","M","L"],
+    imagesByColor: {
+      "Pink": ["https://imgs.search.brave.com/wmccUMtluS1atA7Oa0r_uBSHUD5pTQ206FpoN5Hu42k/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9sYXVy/aWViZWxsZXMuY29t/L2Nkbi9zaG9wL2Zp/bGVzLzNfMjlfNDAu/anBnP2Nyb3A9Y2Vu/dGVyJmhlaWdodD0x/NTAwJnY9MTcxNzc4/ODczMiZ3aWR0aD0x/NTAw"],
+      "Red": ["https://imgs.search.brave.com/UjWlHgRKENxfOx5nuch2tS2JbPMJADlIm38OjLzNPYM/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9pLmV0/c3lzdGF0aWMuY29t/LzU3NzA3NDQ2L2Mv/ODUzLzg1My8wLzQw/Mi9pbC9lY2M0NDMv/Njk4MDcwNDc5My9p/bF8zMDB4MzAwLjY5/ODA3MDQ3OTNfNmpw/MC5qcGc"]
+    }
+  }
+];
+
+/* ---------------------------
+   helpers & state
+   --------------------------- */
+const qs = s => document.querySelector(s);
+const qsa = s => Array.from(document.querySelectorAll(s));
+const fmt = n => Number(n).toLocaleString();
+
+let cart = []; // {id,name,price,size,color,qty}
+let activeOptionProduct = null;
+let activeColorIndex = 0;
+
+/* ---------------------------
+   Hero enterSite (fade + show)
+   --------------------------- */
+function enterSite() {
+  const hero = document.querySelector('#hero');
+  const main = document.querySelector('#mainSite');
+
+  // Add fade-out animation
+  hero.style.transition = 'opacity 0.6s ease';
+  hero.style.opacity = '0';
+
+  setTimeout(() => {
+    hero.style.display = 'none';
+    main.style.display = 'block';
+  }, 600); // matches transition time
+}
+
+
+/* ---------------------------
+   render product list
+   --------------------------- */
+function renderProducts(){
+  const grid = qs('#productGrid'); grid.innerHTML='';
+  PRODUCTS.forEach(p=>{
+    const card = document.createElement('article');
+    card.className = 'card product';
+    card.dataset.id = p.id;
+    // pick first color image
+    const firstColor = p.colors && p.colors.length ? p.colors[0] : null;
+    const img = firstColor && p.imagesByColor && p.imagesByColor[firstColor] ? p.imagesByColor[firstColor][0] : (Object.values(p.imagesByColor)[0] ? Object.values(p.imagesByColor)[0][0] : '');
+    card.innerHTML = `
+      <div class="thumb"><img src="${img}" alt="${p.name}"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div>
+          <div class="prod-title">${p.name}</div>
+          <div class="small muted">₦${fmt(p.price)}</div>
+        </div>
+        <div style="text-align:right"><div class="small muted">${p.colors ? p.colors.join(', ') : ''}</div></div>
+      </div>
+      <div class="card-actions">
+        <button class="btn btn-cart" data-action="add">Add to Cart</button>
+        <button class="btn btn-option" data-action="options">Select Options</button>
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+  attachProductDelegation();
+}
+renderProducts();
+
+/* ---------------------------
+   product delegation (buttons)
+   --------------------------- */
+function attachProductDelegation(){
+  qsa('.card.product').forEach(card=>{
+    const pid = card.dataset.id;
+    const addBtn = card.querySelector('[data-action="add"]');
+    const optBtn = card.querySelector('[data-action="options"]');
+    addBtn.onclick = ()=> {
+      const p = PRODUCTS.find(x=>x.id===pid);
+      const size = p.sizes && p.sizes.length ? p.sizes[0] : 'M';
+      const color = p.colors && p.colors.length ? p.colors[0] : null;
+      addToCart({id:pid,size,color,qty:1});
+      renderCartList(); updateCartBadge();
+      toast('Added to cart');
+    };
+    optBtn.onclick = ()=> openProductOptions(pid);
+  });
+}
+
+/* ---------------------------
+   CART logic (merge duplicates)
+   --------------------------- */
+function addToCart({id,size,color,qty}){
+  const p = PRODUCTS.find(x=>x.id===id); if(!p) return;
+  const normalizedSize = size || (p.sizes && p.sizes[0]) || 'M';
+  const normalizedColor = color || (p.colors && p.colors[0]) || null;
+  const idx = cart.findIndex(it=> it.id===id && (it.size||'')===normalizedSize && (it.color||'')=== (normalizedColor||''));
+  if(idx > -1){
+    cart[idx].qty = Number(cart[idx].qty) + Number(qty);
+  } else {
+    cart.push({ id, name: p.name, price: p.price, size: normalizedSize, color: normalizedColor, qty: Number(qty) });
+  }
+}
+function updateCartBadge(){
+  qs('#cartCount').innerText = cart.reduce((s,i)=>s + Number(i.qty), 0);
+}
+
+/* render cart */
+function renderCartList(){
+  const list = qs('#cartList'); list.innerHTML = '';
+  if(cart.length===0){ list.innerHTML = '<p class="muted">Your cart is empty.</p>'; return; }
+  cart.forEach((it, idx)=>{
+    const el = document.createElement('div'); el.className='cart-item';
+    el.innerHTML = `
+      <div style="flex:1">
+        <div style="font-weight:700">${it.name}</div>
+        <div class="small muted">₦${fmt(it.price)}</div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label class="small">Size:
+            <select onchange="updateCartItem(${idx},'size',this.value)">
+              ${['S','M','L','XL'].map(s=>`<option ${it.size===s?'selected':''}>${s}</option>`).join('')}
+            </select>
+          </label>
+          ${it.color ? `<label class="small">Color:
+            <select onchange="updateCartItem(${idx},'color',this.value)">${getProductColors(it.id).map(c=>`<option ${it.color===c?'selected':''}>${c}</option>`).join('')}</select>
+          </label>` : ''}
+          <label class="small">Qty:
+            <input class="qty-input" type="number" min="1" value="${it.qty}" onchange="updateCartItem(${idx},'qty',this.value)"/>
+          </label>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+        <div style="font-weight:700">₦${fmt(it.price * it.qty)}</div>
+        <button class="btn-delete" onclick="removeCartItem(${idx})">Remove</button>
+      </div>
+    `;
+    list.appendChild(el);
+  });
+}
+
+/* cart helpers */
+function getProductColors(id){ const p=PRODUCTS.find(x=>x.id===id); return p && p.colors? p.colors : [] }
+function updateCartItem(idx, field, value){
+  if(field === 'qty') value = Math.max(1, Number(value));
+  cart[idx][field] = value;
+  renderCartList(); updateCartBadge();
+}
+function removeCartItem(idx){ cart.splice(idx,1); renderCartList(); updateCartBadge(); }
+
+/* ---------------------------
+   checkout
+   --------------------------- */
+function renderOrderSummary(){
+  const el = qs('#orderSummary');
+  const productSum = cart.reduce((s,item) => s + (Number(item.price) * Number(item.qty)), 0);
+  const deliveryRadio = document.querySelector('input[name="delivery"]:checked');
+  const deliveryType = deliveryRadio ? deliveryRadio.value : 'normal';
+  const deliveryFee = deliveryType === 'express' ? 5000 : 3000;
+  const total = productSum + deliveryFee;
+  let html = `<div class="muted">Items total: ₦${fmt(productSum)}</div>`;
+  cart.forEach(it=>{
+    html += `<div style="margin-top:6px">${it.qty} × ${it.name}${it.size? ' / ' + it.size : ''}${it.color ? ' / ' + it.color : ''} — ₦${fmt(it.price * it.qty)}</div>`;
+  });
+  html += `<div style="margin-top:8px;color:var(--muted)">Delivery (${deliveryType==='express'?'Express (3–5 days)':'Normal (5–7 days)'}): ₦${fmt(deliveryFee)}</div>`;
+  html += `<div style="margin-top:6px;font-weight:700">Total: ₦${fmt(total)}</div>`;
+  el.innerHTML = html;
+}
+function updateDeliveryFee(){ renderOrderSummary(); const pay = document.querySelector('input[name="pay"]:checked'); qs('#opayBox').style.display = pay && pay.value === 'opay' ? 'block' : 'none'; }
+function checkout(){ if(cart.length===0){ alert('Your cart is empty.'); return; } renderOrderSummary(); closeModal('cartModal'); openModal('checkoutModal'); }
+function placeOrder(){
+  const name = qs('#checkoutName').value.trim();
+  const email = qs('#checkoutEmail').value.trim();
+  const address = qs('#checkoutAddress').value.trim();
+  const state = qs('#checkoutState').value.trim();
+  if(!name || !email || !address || !state){ alert('Please fill delivery details'); return; }
+  const deliveryRadio = document.querySelector('input[name="delivery"]:checked');
+  const deliveryType = deliveryRadio ? deliveryRadio.value : 'normal';
+  const deliveryFee = deliveryType === 'express' ? 5000 : 3000;
+  const payment = document.querySelector('input[name="pay"]:checked')?.value || 'transfer';
+  let msg = `New Order from VØLAN\nName: ${name}\nEmail: ${email}\nAddress: ${address}\nState: ${state}\n\nItems:\n`;
+  cart.forEach(it=>{
+    msg += `- ${it.name} | Size: ${it.size || '-'} | Color: ${it.color || '-'} | Qty: ${it.qty} | ₦${fmt(it.price * it.qty)}\n`;
+  });
+  const subtotal = cart.reduce((s,i) => s + (Number(i.price) * Number(i.qty)), 0);
+  const total = subtotal + deliveryFee;
+  msg += `\nDelivery: ${deliveryType === 'express' ? 'Express (3-5 days)' : 'Normal (5-7 days)'} — ₦${fmt(deliveryFee)}\n`;
+  msg += `Total: ₦${fmt(total)}\nPayment: ${payment}\n`;
+  if(payment === 'opay'){
+    msg += `OPay Account: 08023276137 (ABAYOMI HAROUN ADENIRAN)\n`;
+  }
+  const waNumber = '2349046433932';
+  window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+
+/* ---------------------------
+   SEARCH & LOGIN
+   --------------------------- */
+qs('#globalSearch').addEventListener('input', function(){
+  const q = this.value.trim().toLowerCase();
+  qsa('.card.product').forEach(card=>{
+    const name = (card.querySelector('.prod-title')?.textContent || '').toLowerCase();
+    card.style.display = name.includes(q) ? '' : 'none';
+  });
+});
+qs('#loginBtn').addEventListener('click', ()=> openModal('loginModal'));
+function doLogin(){
+  const n = qs('#loginFullname').value.trim();
+  const e = qs('#loginEmail').value.trim();
+  if(!n || !e){ alert('Please provide name and email'); return; }
+  if(qs('#rememberMe').checked) localStorage.setItem('volanUser', JSON.stringify({name:n,email:e}));
+  else localStorage.removeItem('volanUser');
+  alert('Welcome ' + n);
+  closeModal('loginModal');
+}
+window.addEventListener('load', ()=>{
+  const u = localStorage.getItem('volanUser');
+  if(u){
+    try{ const obj = JSON.parse(u); qs('#loginFullname').value = obj.name || ''; qs('#loginEmail').value = obj.email || ''; }catch(e){}
+  }
+});
+
+/* ---------------------------
+   SELECT OPTIONS modal & carousel behavior
+   --------------------------- */
+function openProductOptions(productId){
+  const p = PRODUCTS.find(x=>x.id===productId);
+  if(!p) return;
+  activeOptionProduct = p;
+  const defaultColor = p.colors && p.colors.length ? p.colors[0] : null;
+  buildCarouselForColor(p, defaultColor);
+
+  // build details (no reviews per request)
+  const details = qs('#optionDetails');
+  const colorHtml = p.colors && p.colors.length ? `<div class="small muted">Color</div><div class="pill-row" id="colorPills">${p.colors.map((c,ci)=>`<div class="pill ${ci===0?'selected':''}" data-color="${c}">${c}</div>`).join('')}</div>` : '';
+  const sizeHtml = `<div class="small muted">Size</div><div class="pill-row" id="sizePills">${p.sizes.map((s,si)=>`<div class="pill ${si===0?'selected':''}" data-size="${s}">${s}</div>`).join('')}</div>`;
+
+  details.innerHTML = `
+    <h2>${p.name}</h2>
+    <div class="price">₦${fmt(p.price)}</div>
+    <div class="small muted">Choose color and size</div>
+    <div style="margin-top:8px">${colorHtml}${sizeHtml}</div>
+    <div style="margin-top:12px">
+      <label class="small muted">Quantity</label>
+      <input id="optQty" type="number" min="1" value="1" style="width:110px;padding:8px;margin-top:6px;background:#0b0b0b;border-radius:8px;border:0;color:var(--text)"/>
+    </div>
+    <div class="option-actions">
+      <button class="btn btn-cart" id="optAddBtn">Add to Cart</button>
+      <button class="go-back" id="optClose">Close</button>
+    </div>
+  `;
+
+  // wire color pills -> switch carousel to that color
+  qsa('#colorPills .pill').forEach(pill=>{
+    pill.onclick = ()=>{
+      qsa('#colorPills .pill').forEach(x=>x.classList.remove('selected'));
+      pill.classList.add('selected');
+      const chosen = pill.dataset.color;
+      buildCarouselForColor(p, chosen);
+    };
+  });
+
+  // wire size pills
+  qsa('#sizePills .pill').forEach(pill=>{
+    pill.onclick = ()=>{ qsa('#sizePills .pill').forEach(x=>x.classList.remove('selected')); pill.classList.add('selected'); };
+  });
+
+  // add to cart
+  qs('#optAddBtn').onclick = ()=>{
+    const selectedSize = qs('#sizePills .pill.selected')?.dataset.size || p.sizes[0];
+    const selectedColor = qs('#colorPills .pill.selected')?.dataset.color || (p.colors?[p.colors[0]]:null);
+    const qty = Math.max(1, Number(qs('#optQty').value || 1));
+    addToCart({id:p.id,size:selectedSize,color:selectedColor,qty});
+    renderCartList(); updateCartBadge();
+    toast('Added to cart');
+  };
+
+  qs('#optClose').onclick = ()=> closeModal('optionModal');
+
+  openModal('optionModal');
+}
+
+/* build carousel: color-specific images, thumbnails, arrows; arrows only change images when clicked */
+function buildCarouselForColor(product, color){
+  const main = qs('#carouselMain');
+  const thumbs = qs('#carouselThumbs');
+  const images = (product.imagesByColor && product.imagesByColor[color]) ? product.imagesByColor[color] : [].concat(...Object.values(product.imagesByColor));
+  if(!images || !images.length) return;
+  activeColorIndex = 0;
+  main.innerHTML = `<img src="${images[0]}" alt="${product.name}">`;
+  thumbs.innerHTML = '';
+  images.forEach((src,i)=>{
+    const t = document.createElement('div'); t.className = 'thumb-small' + (i===0 ? ' active' : ''); t.innerHTML = `<img src="${src}" alt="${product.name}">`;
+    t.onclick = ()=> { activeColorIndex = i; main.innerHTML = `<img src="${images[activeColorIndex]}" alt="${product.name}">`; qsa('#carouselThumbs .thumb-small').forEach((tt,ii)=>tt.classList.toggle('active',ii===activeColorIndex)); };
+    thumbs.appendChild(t);
+  });
+
+  // arrows: remove old if present
+  const container = qs('#optCarousel');
+  const oldPrev = qs('#carouselPrev'); if(oldPrev) oldPrev.remove();
+  const oldNext = qs('#carouselNext'); if(oldNext) oldNext.remove();
+
+  const prev = document.createElement('button'); prev.id='carouselPrev'; prev.className='icon-btn'; prev.style.position='absolute'; prev.style.left='8px'; prev.style.top='50%'; prev.style.transform='translateY(-50%)'; prev.style.background='rgba(0,0,0,0.3)'; prev.style.borderRadius='10px'; prev.style.padding='8px'; prev.innerText='◀';
+  const next = document.createElement('button'); next.id='carouselNext'; next.className='icon-btn'; next.style.position='absolute'; next.style.right='8px'; next.style.top='50%'; next.style.transform='translateY(-50%)'; next.style.background='rgba(0,0,0,0.3)'; next.style.borderRadius='10px'; next.style.padding='8px'; next.innerText='▶';
+
+  prev.onclick = ()=> { activeColorIndex = (activeColorIndex - 1 + images.length) % images.length; main.innerHTML = `<img src="${images[activeColorIndex]}" alt="${product.name}">`; qsa('#carouselThumbs .thumb-small').forEach((tt,ii)=>tt.classList.toggle('active',ii===activeColorIndex)); };
+  next.onclick = ()=> { activeColorIndex = (activeColorIndex + 1) % images.length; main.innerHTML = `<img src="${images[activeColorIndex]}" alt="${product.name}">`; qsa('#carouselThumbs .thumb-small').forEach((tt,ii)=>tt.classList.toggle('active',ii===activeColorIndex)); };
+
+  container.appendChild(prev); container.appendChild(next);
+}
+
+/* ---------------------------
+   modal utilities + overlay click to close
+   --------------------------- */
+function openModal(id){
+  const modal = qs('#'+id);
+  modal.style.display = 'flex';
+  setTimeout(()=> modal.classList.add('show'), 10);
+  // special: add cart-open class when cart opened
+  if(id === 'cartModal') qs('#'+id).querySelector('.modal-inner').classList.add('cart-open');
+}
+function closeModal(id){
+  const modal = qs('#'+id);
+  modal.classList.remove('show');
+  // remove cart-open if present
+  const inner = modal.querySelector('.modal-inner'); if(inner) inner.classList.remove('cart-open');
+  setTimeout(()=> modal.style.display = 'none', 240);
+}
+function overlayClose(e, id){
+  // close when clicking directly on overlay (not inner)
+  const modal = qs('#'+id);
+  if(e.target === modal) closeModal(id);
+}
+document.addEventListener('keydown', e=>{
+  if(e.key === 'Escape'){
+    ['optionModal','checkoutModal','cartModal','loginModal','searchModal'].forEach(id=>{
+      const m = qs('#'+id); if(m && m.style.display === 'flex') closeModal(id);
+    });
+  }
+});
+
+/* ---------------------------
+   initial bindings & tiny UI
+   --------------------------- */
+qs('#cartBtn').addEventListener('click', ()=>{ renderCartList(); openModal('cartModal'); renderOrderSummary(); });
+qsa('input[name="delivery"]').forEach(r=> r.addEventListener('change', updateDeliveryFee));
+qsa('input[name="pay"]').forEach(r=> r.addEventListener('change', ()=>{ qs('#opayBox').style.display = (document.querySelector('input[name="pay"]:checked').value === 'opay') ? 'block' : 'none'; renderOrderSummary(); }));
+
+/* toast helper + simple animation for cart open */
+function toast(msg, ms=1200){
+  const t = document.createElement('div'); t.textContent = msg;
+  t.style.position='fixed'; t.style.bottom='26px'; t.style.left='50%'; t.style.transform='translateX(-50%)';
+  t.style.background='linear-gradient(90deg,var(--accent),var(--accent-2))'; t.style.color='#fff';
+  t.style.padding='10px 14px'; t.style.borderRadius='999px'; t.style.boxShadow='0 8px 30px rgba(0,0,0,0.6)'; t.style.zIndex=9999;
+  document.body.appendChild(t); setTimeout(()=> t.style.opacity='0.01', ms-300); setTimeout(()=>t.remove(), ms);
+}
+
+/* expose for debugging if needed */
+window._VOLAN = { PRODUCTS, cart };
+
+/* finish initialization */
+updateCartBadge();
+</script>
+</body>
+</html>
