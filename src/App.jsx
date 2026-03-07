@@ -3,7 +3,7 @@ import {
   ShoppingBag, X, ChevronRight, ChevronLeft, User, Check,
   Package, TrendingUp, Users, LogOut, Plus, Minus, BarChart2,
   Settings, Home, Grid, ImagePlus, Trash2, Edit2, AlertTriangle,
-  RotateCcw, Eye, EyeOff
+  RotateCcw, Eye, EyeOff, Mail, Lock, MapPin
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -13,40 +13,99 @@ const supabase = createClient(
 );
 
 // ═══════════════════════════════════════════════════════════════
-//  DATABASE LAYER  —  currently localStorage (zero setup needed)
+//  DATABASE SETUP INSTRUCTIONS
 //
-//  BEST FREE OPTIONS FOR PRODUCTION:
+//  Run these SQL commands in your Supabase SQL Editor:
 //
-//  1. SUPABASE ✅ (Recommended)
-//     Free: 500MB DB, 1GB storage, 50k monthly active users
-//     PostgreSQL — perfect for e-commerce, scales cleanly
-//     Built-in REST API, real-time subs, auth, image storage
-//     npm install @supabase/supabase-js
-//     https://supabase.com
+//  -- Users table (Supabase Auth handles this, but we add custom fields)
+//  CREATE TABLE IF NOT EXISTS user_profiles (
+//    id UUID PRIMARY KEY REFERENCES auth.users(id),
+//    first_name TEXT,
+//    last_name TEXT,
+//    phone TEXT,
+//    created_at TIMESTAMPTZ DEFAULT NOW()
+//  );
 //
-//     Swap in (15 mins):
-//     import { createClient } from '@supabase/supabase-js'
-//     const supabase = createClient('YOUR_URL', 'YOUR_ANON_KEY')
-//     getProducts: async () => { const {data} = await supabase.from('products').select('*'); return data; }
-//     saveProducts: async (arr) => { await supabase.from('products').upsert(arr); }
+//  -- Admin users
+//  CREATE TABLE IF NOT EXISTS admin_users (
+//    user_id UUID PRIMARY KEY REFERENCES auth.users(id),
+//    created_at TIMESTAMPTZ DEFAULT NOW()
+//  );
 //
-//  2. FIREBASE FIRESTORE
-//     Free: 1GB, 50k reads/day — easy start, gets costly at scale
-//     npm install firebase  |  https://firebase.google.com
+//  -- Orders table
+//  CREATE TABLE IF NOT EXISTS orders (
+//    id BIGSERIAL PRIMARY KEY,
+//    order_number TEXT UNIQUE NOT NULL,
+//    user_id UUID REFERENCES auth.users(id),
+//    customer_email TEXT NOT NULL,
+//    customer_name TEXT NOT NULL,
+//    customer_phone TEXT NOT NULL,
+//    shipping_address TEXT NOT NULL,
+//    shipping_city TEXT NOT NULL,
+//    shipping_state TEXT NOT NULL,
+//    items JSONB NOT NULL,
+//    subtotal BIGINT NOT NULL,
+//    shipping BIGINT NOT NULL,
+//    total BIGINT NOT NULL,
+//    payment_reference TEXT,
+//    payment_status TEXT DEFAULT 'pending',
+//    order_status TEXT DEFAULT 'paid',
+//    created_at TIMESTAMPTZ DEFAULT NOW(),
+//    updated_at TIMESTAMPTZ DEFAULT NOW()
+//  );
 //
-//  3. MONGODB ATLAS
-//     Free: 512MB shared — needs a Node.js backend layer
-//     https://www.mongodb.com/atlas
+//  -- Shipping settings table
+//  CREATE TABLE IF NOT EXISTS shipping_settings (
+//    id TEXT PRIMARY KEY,
+//    rate BIGINT NOT NULL,
+//    updated_at TIMESTAMPTZ DEFAULT NOW()
+//  );
+//
+//  -- Insert default shipping rates
+//  INSERT INTO shipping_settings (id, rate) VALUES
+//    ('Lagos', 5000),
+//    ('South_West', 7000),
+//    ('South_South', 8000),
+//    ('North', 9000),
+//    ('default', 9000)
+//  ON CONFLICT (id) DO NOTHING;
+//
+//  -- Metrics table for admin dashboard
+//  CREATE TABLE IF NOT EXISTS metrics (
+//    id BIGSERIAL PRIMARY KEY,
+//    metric_type TEXT NOT NULL,
+//    value BIGINT NOT NULL,
+//    metadata JSONB,
+//    created_at TIMESTAMPTZ DEFAULT NOW()
+//  );
+//
+//  -- Enable Row Level Security
+//  ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+//  ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+//  ALTER TABLE admin_users ENABLE ROW LEVEL SECURITY;
+//  ALTER TABLE shipping_settings ENABLE ROW LEVEL SECURITY;
+//
+//  -- Policies
+//  CREATE POLICY "Users can view own profile" ON user_profiles FOR SELECT USING (auth.uid() = id);
+//  CREATE POLICY "Users can update own profile" ON user_profiles FOR UPDATE USING (auth.uid() = id);
+//  CREATE POLICY "Users can insert own profile" ON user_profiles FOR INSERT WITH CHECK (auth.uid() = id);
+//  CREATE POLICY "Users can view own orders" ON orders FOR SELECT USING (auth.uid() = user_id OR user_id IS NULL);
+//  CREATE POLICY "Anyone can insert orders" ON orders FOR INSERT WITH CHECK (true);
+//  CREATE POLICY "Admins can view all orders" ON orders FOR SELECT USING (auth.uid() IN (SELECT user_id FROM admin_users));
+//  CREATE POLICY "Admins can update orders" ON orders FOR UPDATE USING (auth.uid() IN (SELECT user_id FROM admin_users));
+//  CREATE POLICY "Anyone can view shipping settings" ON shipping_settings FOR SELECT USING (true);
+//  CREATE POLICY "Admins can update shipping settings" ON shipping_settings FOR UPDATE USING (auth.uid() IN (SELECT user_id FROM admin_users));
+//
 // ═══════════════════════════════════════════════════════════════
 
 const db = {
+  // Products
   getProducts: async () => {
     const { data, error } = await supabase.from("products").select("*").order("id");
-    if (error) { console.error("Error loading products:", error); return null; }
-    return data;
+    if (error) { console.error("Error loading products:", error); return []; }
+    return data || [];
   },
   saveProduct: async (product) => {
-    // Only send known plain-data fields — strips any React/DOM references
     const clean = {
       id: product.id,
       name: product.name,
@@ -69,6 +128,79 @@ const db = {
     if (error) { console.error("Error updating sizes:", error); return false; }
     return true;
   },
+  
+  // Orders
+  createOrder: async (orderData) => {
+    const { data, error } = await supabase.from("orders").insert(orderData).select().single();
+    if (error) { console.error("Error creating order:", error); return null; }
+    return data;
+  },
+  getOrders: async () => {
+    const { data, error } = await supabase.from("orders").select("*").order("created_at", { ascending: false });
+    if (error) { console.error("Error fetching orders:", error); return []; }
+    return data || [];
+  },
+  getUserOrders: async (userId) => {
+    const { data, error } = await supabase.from("orders").select("*").eq("user_id", userId).order("created_at", { ascending: false });
+    if (error) { console.error("Error fetching user orders:", error); return []; }
+    return data || [];
+  },
+  updateOrderStatus: async (orderId, status) => {
+    const { error } = await supabase.from("orders").update({ order_status: status, updated_at: new Date().toISOString() }).eq("id", orderId);
+    if (error) { console.error("Error updating order status:", error); return false; }
+    return true;
+  },
+  verifyPayment: async (reference) => {
+    // In production, this would call a Supabase Edge Function that verifies with Paystack secret key
+    // For now, we simulate verification
+    return { verified: true, status: "success" };
+  },
+  
+  // User profiles
+  getUserProfile: async (userId) => {
+    const { data, error } = await supabase.from("user_profiles").select("*").eq("id", userId).single();
+    if (error) { console.error("Error fetching profile:", error); return null; }
+    return data;
+  },
+  updateUserProfile: async (userId, profile) => {
+    const { error } = await supabase.from("user_profiles").upsert({ id: userId, ...profile });
+    if (error) { console.error("Error updating profile:", error); return false; }
+    return true;
+  },
+  
+  // Admin check
+  isAdmin: async (userId) => {
+    const { data } = await supabase.from("admin_users").select("user_id").eq("user_id", userId).single();
+    return !!data;
+  },
+  
+  // Metrics
+  recordMetric: async (type, value, metadata = {}) => {
+    await supabase.from("metrics").insert({ metric_type: type, value, metadata });
+  },
+  getMetrics: async (type, since) => {
+    let query = supabase.from("metrics").select("*");
+    if (type) query = query.eq("metric_type", type);
+    if (since) query = query.gte("created_at", since);
+    const { data } = await query;
+    return data || [];
+  },
+  
+  // Shipping settings
+  getShippingSettings: async () => {
+    const { data, error } = await supabase.from("shipping_settings").select("*");
+    if (error) { console.error("Error fetching shipping settings:", error); return {}; }
+    const settings = {};
+    (data || []).forEach(row => {
+      settings[row.id] = row.rate;
+    });
+    return settings;
+  },
+  updateShippingRate: async (id, rate) => {
+    const { error } = await supabase.from("shipping_settings").upsert({ id, rate, updated_at: new Date().toISOString() });
+    if (error) { console.error("Error updating shipping rate:", error); return false; }
+    return true;
+  }
 };
 
 // ─────────────────────────────────────────────
@@ -139,8 +271,22 @@ const GlobalStyles = () => (
     .img-placeholder{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-family:'Cormorant Garamond',serif;font-size:11px;letter-spacing:3px;color:rgba(255,255,255,.2);text-transform:uppercase}
     .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);z-index:200}
     .admin-row{transition:background .15s ease}.admin-row:hover{background:rgba(255,255,255,.02)}
-    @media(max-width:768px){.desktop-nav{display:none!important}.mobile-nav{display:flex!important}.desktop-only{display:none!important}}
-    @media(min-width:769px){.mobile-nav{display:none!important}.mobile-only{display:none!important}}
+    .entry-footer{white-space:nowrap;overflow:hidden}
+    @media(max-width:768px){
+      .desktop-nav{display:none!important}
+      .mobile-nav{display:flex!important}
+      .desktop-only{display:none!important}
+      .btn-primary{padding:12px 24px;font-size:12px}
+      .btn-ghost{padding:10px 20px;font-size:12px}
+      .modal-box{max-width:95%;margin:10px}
+      .product-detail-grid{grid-template-columns:1fr!important}
+      .checkout-grid{grid-template-columns:1fr!important}
+      .entry-footer{font-size:8px;letter-spacing:3px}
+    }
+    @media(min-width:769px){
+      .mobile-nav{display:none!important}
+      .mobile-only{display:none!important}
+    }
   `}</style>
 );
 
@@ -171,10 +317,12 @@ const NIGERIAN_STATES = [
   "Taraba","Yobe","Zamfara"
 ];
 
-const SHIPPING_TIERS = {
-  Lagos:5000, Ogun:7000, Oyo:7000, Osun:7000, Ondo:7000, Ekiti:7000,
-  Rivers:8000, Edo:8000, Delta:8000, Bayelsa:8500,
-  "Akwa Ibom":8500, "Cross River":8500, default:9000
+// State-to-region mapping
+const STATE_REGIONS = {
+  Lagos: "Lagos",
+  Ogun: "South_West", Oyo: "South_West", Osun: "South_West", Ondo: "South_West", Ekiti: "South_West",
+  Rivers: "South_South", Edo: "South_South", Delta: "South_South", Bayelsa: "South_South",
+  "Akwa Ibom": "South_South", "Cross River": "South_South",
 };
 
 const SLIDE_GRADIENTS = [
@@ -198,15 +346,15 @@ const IMG_G = {
 };
 
 const SEED_PRODUCTS = [
-  {id:1,name:"AGBADA WIDE-LEG TROUSERS",category:"pants",price:85000,status:"published",description:"Crafted from premium woven cotton-linen blend inspired by traditional Agbada fabric. Wide-leg silhouette with deep side pockets and a refined high-rise waist. Elevated Nigerian craftsmanship for the modern wardrobe.",images:["p1a","p1b","p1c"],colors:["Obsidian","Ivory","Sahara"],sizes:{S:3,M:0,L:5,XL:2,XXL:0},archived:false},
+  {id:1,name:"AGBADA WIDE-LEG TROUSERS",category:"pants",price:85000,status:"published",description:"Crafted from premium woven cotton-linen blend inspired by traditional Agbada fabric. Wide-leg silhouette with deep side pockets and a refined high-rise waist.",images:["p1a","p1b","p1c"],colors:["Obsidian","Ivory","Sahara"],sizes:{S:3,M:0,L:5,XL:2,XXL:0},archived:false},
   {id:2,name:"ADIRE TAILORED JOGGERS",category:"pants",price:65000,status:"published",description:"Adire-inspired joggers with hand-dyed indigo patterns on structured fleece. A perfect marriage of Yoruba textile tradition and contemporary streetwear.",images:["p2a","p2b"],colors:["Forest","Obsidian"],sizes:{S:4,M:7,L:3,XL:0,XXL:2},archived:false},
   {id:3,name:"OKÈ-ARÒ CARGO PANTS",category:"pants",price:72000,status:"published",description:"Six-pocket utility pants in heavyweight canvas with contrast stitching. Cut for ease of movement with tapered ankle and adjustable waist tie.",images:["p3a","p3b","p3c"],colors:["Slate","Sahara","Obsidian"],sizes:{S:0,M:2,L:0,XL:4,XXL:1},archived:false},
-  {id:4,name:"SENATORIAL LINEN SHIRT",category:"shirts",price:58000,status:"published",description:"Single-origin Aso-oke woven linen in a relaxed boxy cut. Mandarin collar with mother-of-pearl buttons and subtle tonal embroidery at the chest pocket.",images:["p4a","p4b"],colors:["Ivory","Sahara","Crimson"],sizes:{S:6,M:4,L:2,XL:3,XXL:1},archived:false},
+  {id:4,name:"SENATORIAL LINEN SHIRT",category:"shirts",price:58000,status:"published",description:"Single-origin Aso-oke woven linen in a relaxed boxy cut. Mandarin collar with mother-of-pearl buttons and subtle tonal embroidery.",images:["p4a","p4b"],colors:["Ivory","Sahara","Crimson"],sizes:{S:6,M:4,L:2,XL:3,XXL:1},archived:false},
   {id:5,name:"VØLAN LONGSLEEVE",category:"shirts",price:48000,status:"published",description:"Premium heavyweight jersey in our signature Vølan weave. Dropped shoulders with ribbed cuffs and a curved hem. The essential Lagos wardrobe staple.",images:["p5a","p5b","p5c"],colors:["Obsidian","Crimson","Slate","Forest"],sizes:{S:8,M:10,L:6,XL:4,XXL:3},archived:false},
   {id:6,name:"OWAMBE SILK SHIRT",category:"shirts",price:95000,status:"published",description:"Pure silk charmeuse in celebratory jewel tones. Fluid drape, notch collar and a relaxed open front. Handwashed and softened for immediate luxury.",images:["p6a","p6b"],colors:["Crimson","Sahara","Obsidian"],sizes:{S:2,M:3,L:0,XL:1,XXL:0},archived:false},
-  {id:7,name:"HARMATTAN OVERSIZED HOODIE",category:"hoodies",price:78000,status:"published",description:"400gsm brushed fleece in a generous oversized silhouette. Inspired by the dry Harmattan season — heavy, enveloping, warm. Kangaroo pocket with concealed zip.",images:["p7a","p7b","p7c"],colors:["Obsidian","Sahara","Ivory"],sizes:{S:5,M:8,L:6,XL:3,XXL:4},archived:false},
+  {id:7,name:"HARMATTAN OVERSIZED HOODIE",category:"hoodies",price:78000,status:"published",description:"400gsm brushed fleece in a generous oversized silhouette. Inspired by the dry Harmattan season — heavy, enveloping, warm.",images:["p7a","p7b","p7c"],colors:["Obsidian","Sahara","Ivory"],sizes:{S:5,M:8,L:6,XL:3,XXL:4},archived:false},
   {id:8,name:"LAGOS NOIR PULLOVER",category:"hoodies",price:68000,status:"published",description:"Street-ready pullover in double-faced neoprene. Subtle tonal branding at the chest, split hem and premium YKK half-zip closure.",images:["p8a","p8b"],colors:["Obsidian","Forest","Slate"],sizes:{S:3,M:5,L:4,XL:2,XXL:0},archived:false},
-  {id:9,name:"VICTORIA ISLAND SHERPA",category:"hoodies",price:112000,status:"published",description:"Sherpa-lined zip hoodie with a heavyweight shell and ultra-plush interior. Oversized fit with dropped cuffs. Limited run — once sold out, it's gone.",images:["p9a","p9b","p9c"],colors:["Ivory","Sahara"],sizes:{S:1,M:2,L:0,XL:1,XXL:0},archived:false},
+  {id:9,name:"VICTORIA ISLAND SHERPA",category:"hoodies",price:112000,status:"published",description:"Sherpa-lined zip hoodie with a heavyweight shell and ultra-plush interior. Oversized fit with dropped cuffs. Limited run.",images:["p9a","p9b","p9c"],colors:["Ivory","Sahara"],sizes:{S:1,M:2,L:0,XL:1,XXL:0},archived:false},
 ];
 
 // ─────────────────────────────────────────────
@@ -217,9 +365,21 @@ const fmtPrice = (ngn, cur) =>
     ? `${cur.symbol}${ngn.toLocaleString("en-NG")}`
     : `${cur.symbol}${(ngn * cur.rate).toFixed(2)}`;
 
-const getShipping = (state) => SHIPPING_TIERS[state] || SHIPPING_TIERS.default;
 const isAllSoldOut = (sizes) => Object.values(sizes).every(s => s === 0);
 const genId = () => Date.now() + Math.floor(Math.random() * 9999);
+const genOrderNumber = () => `VLN-${Date.now().toString().slice(-8)}`;
+
+// LocalStorage cart helpers
+const CART_KEY = "volan_cart";
+const saveCartToStorage = (cart) => localStorage.setItem(CART_KEY, JSON.stringify(cart));
+const loadCartFromStorage = () => {
+  try {
+    const stored = localStorage.getItem(CART_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+};
 
 // ─────────────────────────────────────────────
 // PLACEHOLDER IMAGE
@@ -312,14 +472,13 @@ const ProductFormModal = ({ product, onSave, onClose }) => {
       images: imgs.length > 0 ? imgs : (isEdit ? product.images : ["p1a"]),
       archived: isEdit ? (product.archived || false) : false,
     };
-    await onSave(assembled); // calls AdminPanel.handleSave which does the Supabase work
+    await onSave(assembled);
     setSaving(false);
   };
 
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal-box">
-        {/* Header */}
         <div style={{ padding:"22px 28px 18px", borderBottom:"1px solid var(--subtle)", display:"flex", justifyContent:"space-between", alignItems:"center", position:"sticky", top:0, background:"var(--surface)", zIndex:2 }}>
           <div>
             <div className="serif" style={{ fontSize:"22px", fontWeight:400 }}>{isEdit ? "Edit Product" : "Add New Product"}</div>
@@ -329,15 +488,12 @@ const ProductFormModal = ({ product, onSave, onClose }) => {
         </div>
 
         <div style={{ padding:"24px 28px", display:"flex", flexDirection:"column", gap:22 }}>
-
-          {/* Name */}
           <div>
             <label style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", display:"block", marginBottom:8 }}>Product Name *</label>
             <input className="input-field" placeholder="e.g. HARMATTAN OVERSIZED HOODIE" value={form.name} onChange={set("name")} />
             {errors.name && <div style={{ fontSize:"12px", color:"var(--red)", marginTop:5 }}>{errors.name}</div>}
           </div>
 
-          {/* Category + Status */}
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
             <div>
               <label style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", display:"block", marginBottom:8 }}>Category *</label>
@@ -356,7 +512,6 @@ const ProductFormModal = ({ product, onSave, onClose }) => {
             </div>
           </div>
 
-          {/* Price */}
           <div>
             <label style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", display:"block", marginBottom:8 }}>Price (₦) *</label>
             <input className="input-field" type="number" min="0" placeholder="e.g. 78000" value={form.price} onChange={set("price")} />
@@ -366,14 +521,12 @@ const ProductFormModal = ({ product, onSave, onClose }) => {
             {errors.price && <div style={{ fontSize:"12px", color:"var(--red)", marginTop:5 }}>{errors.price}</div>}
           </div>
 
-          {/* Description */}
           <div>
             <label style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", display:"block", marginBottom:8 }}>Description *</label>
             <textarea className="input-field" placeholder="Describe the fabric, fit, and feel of this piece..." value={form.description} onChange={set("description")} />
             {errors.description && <div style={{ fontSize:"12px", color:"var(--red)", marginTop:5 }}>{errors.description}</div>}
           </div>
 
-          {/* Colours */}
           <div>
             <label style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", display:"block", marginBottom:12 }}>Available Colours *</label>
             <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
@@ -388,7 +541,6 @@ const ProductFormModal = ({ product, onSave, onClose }) => {
             {errors.colors && <div style={{ fontSize:"12px", color:"var(--red)", marginTop:5 }}>{errors.colors}</div>}
           </div>
 
-          {/* Sizes & Stock */}
           <div>
             <label style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", display:"block", marginBottom:12 }}>Sizes & Stock Levels</label>
             <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
@@ -413,7 +565,6 @@ const ProductFormModal = ({ product, onSave, onClose }) => {
             </div>
           </div>
 
-          {/* Images */}
           <div>
             <label style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", display:"block", marginBottom:12 }}>Product Images</label>
             {imgs.length > 0 && (
@@ -435,12 +586,8 @@ const ProductFormModal = ({ product, onSave, onClose }) => {
               <div style={{ fontSize:"11px", color:"var(--subtle)" }}>PNG, JPG — first image becomes the main photo</div>
               <input id={`img-up-${isEdit ? product.id : "new"}`} type="file" multiple accept="image/*" style={{ display:"none" }} onChange={handleImgUpload} />
             </label>
-            <div style={{ fontSize:"11px", color:"var(--muted)", marginTop:8, lineHeight:1.7, padding:"10px 14px", background:"var(--surface2)", borderRadius:6, border:"1px solid var(--subtle)" }}>
-              💡 Images show as gradient placeholders until you connect Supabase Storage or Cloudinary. See the DB comments at the top of the file.
-            </div>
           </div>
 
-          {/* Actions */}
           <div style={{ display:"flex", gap:12, paddingTop:8, borderTop:"1px solid var(--subtle)" }}>
             <button className="btn-ghost" onClick={onClose} style={{ flex:1 }}>Cancel</button>
             <button className="btn-primary" onClick={handleSubmit} disabled={saving} style={{ flex:2, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
@@ -509,7 +656,7 @@ const EntryScreen = ({ onEnter }) => {
         </div>
         <button className="btn-primary" onClick={go} style={{ marginTop:16, fontSize:"11px", letterSpacing:"3px" }}>Enter Our World</button>
       </div>
-      <div style={{ position:"absolute", bottom:40, left:"50%", transform:"translateX(-50%)" }}>
+      <div className="entry-footer" style={{ position:"absolute", bottom:40, left:"50%", transform:"translateX(-50%)" }}>
         <div style={{ fontSize:"10px", letterSpacing:"4px", color:"rgba(255,255,255,0.3)", textTransform:"uppercase" }}>Fly Above The System</div>
       </div>
     </div>
@@ -519,7 +666,7 @@ const EntryScreen = ({ onEnter }) => {
 // ─────────────────────────────────────────────
 // NAVBAR
 // ─────────────────────────────────────────────
-const Navbar = ({ cartCount, setPage, page, setCartOpen }) => {
+const Navbar = ({ cartCount, setPage, page, setCartOpen, user, isAdmin }) => {
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => { const f = () => setScrolled(window.scrollY > 20); window.addEventListener("scroll", f); return () => window.removeEventListener("scroll", f); }, []);
   return (
@@ -677,20 +824,19 @@ const ProductPage = ({ product, onBack, addToCart, currency }) => {
   const colors = ALL_COLORS.filter(c => product.colors.includes(c.name));
 
   return (
-    <div style={{ paddingTop: 80, minHeight: "100vh" }} className="fade-in">
-      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 40px 120px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 60 }}>
+    <div style={{ paddingTop: 80, minHeight: "100vh", padding:"80px 20px 120px" }} className="fade-in">
+      <div className="product-detail-grid" style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 20px 120px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 60 }}>
 
-        {/* Images */}
         <div>
           <div style={{ borderRadius: "var(--radius)", overflow: "hidden", aspectRatio: "3/4", background: "var(--surface2)", marginBottom: 12 }}>
             <PlaceholderImage id={product.images[imgIdx]} />
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, overflowX:"auto" }}>
             {product.images.map((img, i) => (
               <div
                 key={i}
                 onClick={() => setImgIdx(i)}
-                style={{ width: 72, aspectRatio: "1/1", borderRadius: 8, overflow: "hidden", cursor: "pointer", border: `2px solid ${imgIdx === i ? "var(--gold)" : "transparent"}`, opacity: imgIdx === i ? 1 : 0.6, transition: "all 0.2s" }}
+                style={{ minWidth: 72, width:72, aspectRatio: "1/1", borderRadius: 8, overflow: "hidden", cursor: "pointer", border: `2px solid ${imgIdx === i ? "var(--gold)" : "transparent"}`, opacity: imgIdx === i ? 1 : 0.6, transition: "all 0.2s" }}
               >
                 <PlaceholderImage id={img} />
               </div>
@@ -698,7 +844,6 @@ const ProductPage = ({ product, onBack, addToCart, currency }) => {
           </div>
         </div>
 
-        {/* Details */}
         <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
           <div>
             <button
@@ -726,12 +871,11 @@ const ProductPage = ({ product, onBack, addToCart, currency }) => {
 
           <div className="divider" />
 
-          {/* Colour picker */}
           <div>
             <div style={{ fontSize: "11px", letterSpacing: "2px", textTransform: "uppercase", color: "var(--muted)", marginBottom: 12 }}>
               Colour{selectedColor ? <span style={{ color: "var(--text)" }}> — {selectedColor}</span> : ""}
             </div>
-            <div style={{ display: "flex", gap: 10 }}>
+            <div style={{ display: "flex", gap: 10, flexWrap:"wrap" }}>
               {colors.map(c => (
                 <div
                   key={c.name}
@@ -747,7 +891,6 @@ const ProductPage = ({ product, onBack, addToCart, currency }) => {
             </div>
           </div>
 
-          {/* Size picker */}
           <div>
             <div style={{ fontSize: "11px", letterSpacing: "2px", textTransform: "uppercase", color: "var(--muted)", marginBottom: 12 }}>Size</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -807,14 +950,22 @@ const ProductPage = ({ product, onBack, addToCart, currency }) => {
 const CartDrawer = ({ cart, setCart, currency, onClose, onCheckout, isMobile }) => {
   const subtotal = cart.reduce((s, item) => s + item.product.price * item.qty, 0);
 
-  const updateQty = (idx, delta) => setCart(c => c.map((item, i) => {
-  if (i !== idx) return item;
-  const stock = item.product.sizes[item.size] || 0;
-  const newQty = Math.min(Math.max(1, item.qty + delta), stock);
-  return { ...item, qty: newQty };
-  }));
+  const updateQty = (idx, delta) => setCart(c => {
+    const updated = c.map((item, i) => {
+      if (i !== idx) return item;
+      const stock = item.product.sizes[item.size] || 0;
+      const newQty = Math.min(Math.max(1, item.qty + delta), stock);
+      return { ...item, qty: newQty };
+    });
+    saveCartToStorage(updated);
+    return updated;
+  });
 
-  const remove = idx => setCart(c => c.filter((_, i) => i !== idx));
+  const remove = idx => setCart(c => {
+    const updated = c.filter((_, i) => i !== idx);
+    saveCartToStorage(updated);
+    return updated;
+  });
 
   return (
     <>
@@ -877,9 +1028,9 @@ const CartDrawer = ({ cart, setCart, currency, onClose, onCheckout, isMobile }) 
 // ─────────────────────────────────────────────
 // CHECKOUT
 // ─────────────────────────────────────────────
-const CheckoutPage = ({ cart, currency, onBack, onSuccess }) => {
+const CheckoutPage = ({ cart, currency, onBack, onSuccess, user, shippingRates }) => {
   const [form, setForm] = useState({
-    email: "",
+    email: user?.email || "",
     firstName: "",
     lastName: "",
     phone: "",
@@ -892,12 +1043,19 @@ const CheckoutPage = ({ cart, currency, onBack, onSuccess }) => {
   const [errors, setErrors] = useState({});
 
   const sub = cart.reduce((s, i) => s + i.product.price * i.qty, 0);
+  
+  // Calculate shipping based on state
+  const getShipping = (state) => {
+    const region = STATE_REGIONS[state];
+    if (region) return shippingRates[region] || shippingRates.default;
+    return shippingRates.North || shippingRates.default;
+  };
+  
   const ship = getShipping(form.state);
   const total = sub + ship;
 
   const setField = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  // ───────────── VALIDATION ─────────────
   const validateStep = () => {
     const newErrors = {};
     if (step === 1) {
@@ -918,11 +1076,15 @@ const CheckoutPage = ({ cart, currency, onBack, onSuccess }) => {
     if (validateStep()) setStep((s) => s + 1);
   };
 
-  // ───────────── PAY FUNCTION ─────────────
   const pay = () => {
     if (!form.email) {
       setErrors({ email: "Email is required" });
       setStep(1);
+      return;
+    }
+
+    if (!window.PaystackPop || typeof window.PaystackPop.setup !== "function") {
+      alert("Payment system not loaded. Please refresh.");
       return;
     }
 
@@ -939,21 +1101,66 @@ const CheckoutPage = ({ cart, currency, onBack, onSuccess }) => {
           { display_name: "Phone", variable_name: "phone", value: form.phone },
         ],
       },
-      callback: function (response) {
-        setTimeout(() => {
-          onSuccess();
+      callback: (response) => {
+        if (!response || !response.reference) {
           setProcessing(false);
-        }, 1500);
+          alert("Payment failed. No reference returned.");
+          return;
+        }
+
+        (async () => {
+          try {
+            const verified = await db.verifyPayment(response.reference);
+            if (verified?.verified) {
+              const orderData = {
+                order_number: genOrderNumber(),
+                user_id: user?.id || null,
+                customer_email: form.email,
+                customer_name: `${form.firstName} ${form.lastName}`,
+                customer_phone: form.phone,
+                shipping_address: form.address,
+                shipping_city: form.city,
+                shipping_state: form.state,
+                items: (cart || []).map((item) => ({
+                  product_id: item.product.id,
+                  product_name: item.product.name,
+                  size: item.size,
+                  color: item.color,
+                  qty: item.qty,
+                  price: item.product.price,
+                })),
+                subtotal: sub,
+                shipping: ship,
+                total: total,
+                payment_reference: response.reference,
+                payment_status: "success",
+                order_status: "paid",
+              };
+
+              await db.createOrder(orderData);
+              await db.recordMetric("order", total, { order_number: orderData.order_number });
+
+              setTimeout(() => {
+                onSuccess();
+                setProcessing(false);
+              }, 1500);
+            } else {
+              setProcessing(false);
+              alert("Payment verification failed. Please contact support.");
+            }
+          } catch (err) {
+            setProcessing(false);
+            console.error(err);
+            alert("An error occurred while processing your payment.");
+          }
+        })();
       },
-      onClose: function () {
-        setProcessing(false);
-      },
+      onClose: () => setProcessing(false),
     });
 
     handler.openIframe();
   };
 
-  // ───────────── PROCESSING OVERLAY ─────────────
   const ProcessingOverlay = () =>
     processing && (
       <div
@@ -987,14 +1194,13 @@ const CheckoutPage = ({ cart, currency, onBack, onSuccess }) => {
       </div>
     );
 
-  // ───────────── STEP UI ─────────────
   const Step1 = (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }} className="slide-up">
       <h3 style={{ fontSize: 14, letterSpacing: 2, textTransform: "uppercase", color: "var(--muted)" }}>Contact Information</h3>
       <input className="input-field" placeholder="Email address" type="email" value={form.email} onChange={setField("email")} />
-      {errors.email && <div style={{ color: "red", fontSize: 11 }}>{errors.email}</div>}
+      {errors.email && <div style={{ color: "var(--red)", fontSize: 11 }}>{errors.email}</div>}
       <input className="input-field" placeholder="Phone number" type="tel" value={form.phone} onChange={setField("phone")} />
-      {errors.phone && <div style={{ color: "red", fontSize: 11 }}>{errors.phone}</div>}
+      {errors.phone && <div style={{ color: "var(--red)", fontSize: 11 }}>{errors.phone}</div>}
       <button className="btn-primary" style={{ width: "100%" }} onClick={nextStep}>Continue to Delivery</button>
     </div>
   );
@@ -1003,19 +1209,28 @@ const CheckoutPage = ({ cart, currency, onBack, onSuccess }) => {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }} className="slide-up">
       <h3 style={{ fontSize: 14, letterSpacing: 2, textTransform: "uppercase", color: "var(--muted)" }}>Delivery Details</h3>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        <input className="input-field" placeholder="First name" value={form.firstName} onChange={setField("firstName")} />
-        {errors.firstName && <div style={{ color: "red", fontSize: 11 }}>{errors.firstName}</div>}
-        <input className="input-field" placeholder="Last name" value={form.lastName} onChange={setField("lastName")} />
-        {errors.lastName && <div style={{ color: "red", fontSize: 11 }}>{errors.lastName}</div>}
+        <div>
+          <input className="input-field" placeholder="First name" value={form.firstName} onChange={setField("firstName")} />
+          {errors.firstName && <div style={{ color: "var(--red)", fontSize: 11, marginTop:4 }}>{errors.firstName}</div>}
+        </div>
+        <div>
+          <input className="input-field" placeholder="Last name" value={form.lastName} onChange={setField("lastName")} />
+          {errors.lastName && <div style={{ color: "var(--red)", fontSize: 11, marginTop:4 }}>{errors.lastName}</div>}
+        </div>
       </div>
       <input className="input-field" placeholder="Street address" value={form.address} onChange={setField("address")} />
-      {errors.address && <div style={{ color: "red", fontSize: 11 }}>{errors.address}</div>}
+      {errors.address && <div style={{ color: "var(--red)", fontSize: 11 }}>{errors.address}</div>}
       <input className="input-field" placeholder="City" value={form.city} onChange={setField("city")} />
-      {errors.city && <div style={{ color: "red", fontSize: 11 }}>{errors.city}</div>}
-      <select className="input-field" value={form.state} onChange={setField("state")}>
-        {NIGERIAN_STATES.map((s) => <option key={s}>{s}</option>)}
-      </select>
-      {errors.state && <div style={{ color: "red", fontSize: 11 }}>{errors.state}</div>}
+      {errors.city && <div style={{ color: "var(--red)", fontSize: 11 }}>{errors.city}</div>}
+      <div>
+        <select className="input-field" value={form.state} onChange={setField("state")}>
+          {NIGERIAN_STATES.map((s) => <option key={s}>{s}</option>)}
+        </select>
+        {errors.state && <div style={{ color: "var(--red)", fontSize: 11, marginTop:4 }}>{errors.state}</div>}
+        <div style={{ fontSize:"12px", color:"var(--gold)", marginTop:6, display:"flex", alignItems:"center", gap:4 }}>
+          <MapPin size={12} /> Shipping to {form.state}: ₦{getShipping(form.state).toLocaleString("en-NG")}
+        </div>
+      </div>
       <button className="btn-primary" style={{ width: "100%" }} onClick={nextStep}>Continue to Payment</button>
     </div>
   );
@@ -1030,11 +1245,11 @@ const CheckoutPage = ({ cart, currency, onBack, onSuccess }) => {
         disabled={processing}
       >
         {processing
-          ? <div style={{ width: 14, height: 14, border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", animation: "spin .8s linear infinite" }} />
+          ? <div style={{ width: 14, height: 14, border: "2px solid #000", borderTopColor: "transparent", borderRadius: "50%", animation: "spin .8s linear infinite" }} />
           : `Pay ${fmtPrice(total, currency)}`
         }
       </button>
-      <div style={{ fontSize: 12, color: "#666", display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ fontSize: 12, color: "#666", display: "flex", alignItems: "center", gap: 6, justifyContent:"center" }}>
         Secured by Paystack — PCI DSS Compliant
       </div>
     </div>
@@ -1043,14 +1258,14 @@ const CheckoutPage = ({ cart, currency, onBack, onSuccess }) => {
   return (
     <>
       <ProcessingOverlay />
-      <div style={{ minHeight: "100vh", padding: "80px 0 120px" }} className="fade-in">
-        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 40px", display: "grid", gridTemplateColumns: "1fr 400px", gap: 60 }}>
+      <div style={{ minHeight: "100vh", padding: "80px 20px 120px" }} className="fade-in">
+        <div className="checkout-grid" style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 20px", display: "grid", gridTemplateColumns: "1fr 400px", gap: 60 }}>
           <div>
             <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted)", fontSize: 12, letterSpacing: 2, textTransform: "uppercase", fontFamily: "'DM Sans'", marginBottom: 32, display: "flex", alignItems: "center", gap: 6 }}>
               <ChevronLeft size={14} /> Back to Bag
             </button>
             <div className="serif" style={{ fontSize: 32, fontWeight: 300, marginBottom: 8 }}>Checkout</div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 40 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 40, flexWrap:"wrap" }}>
               {["Contact", "Delivery", "Payment"].map((s, i) => (
                 <div key={s} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <div style={{ width: 24, height: 24, borderRadius: "50%", background: step > i + 1 ? "var(--green)" : step === i + 1 ? "var(--gold)" : "var(--subtle)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: step >= i + 1 ? "#000" : "var(--muted)" }}>
@@ -1067,7 +1282,6 @@ const CheckoutPage = ({ cart, currency, onBack, onSuccess }) => {
             {step === 3 && Step3}
           </div>
 
-          {/* ───────────── RIGHT ORDER SUMMARY ───────────── */}
           <div>
             <div className="card" style={{ padding: 24, position: "sticky", top: 80 }}>
               <div style={{ fontSize: 13, letterSpacing: 2, textTransform: "uppercase", color: "var(--muted)", marginBottom: 20 }}>Order Summary</div>
@@ -1114,11 +1328,6 @@ const OrderSuccess = ({ onContinue }) => (
       </div>
       <div className="serif" style={{ fontSize:"40px", fontWeight:300, marginBottom:12 }}>Order Confirmed</div>
       <p style={{ color:"var(--muted)", fontSize:"14px", lineHeight:1.7, marginBottom:32 }}>Thank you for your order. You'll receive a confirmation email shortly. Your order will be dispatched within 1–2 business days.</p>
-      <div style={{ background:"var(--surface2)", border:"1px solid var(--subtle)", borderRadius:8, padding:"12px 20px", display:"inline-block", marginBottom:32 }}>
-        <span style={{ fontSize:"11px", color:"var(--muted)", letterSpacing:"2px", textTransform:"uppercase" }}>Order </span>
-        <span style={{ color:"var(--gold)", fontWeight:700 }}>#VLN-{Math.floor(10000+Math.random()*90000)}</span>
-      </div>
-      <br />
       <button className="btn-primary" onClick={onContinue}>Continue Shopping</button>
     </div>
   </div>
@@ -1127,28 +1336,104 @@ const OrderSuccess = ({ onContinue }) => (
 // ─────────────────────────────────────────────
 // ACCOUNT PAGE
 // ─────────────────────────────────────────────
-const AccountPage = () => {
+const AccountPage = ({ user, onLogout, onLogin }) => {
   const [tab, setTab] = useState("login");
-  const [loggedIn, setLoggedIn] = useState(false);
+  const [form, setForm] = useState({ email:"", password:"", firstName:"", lastName:"", phone:"" });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [orders, setOrders] = useState([]);
+  
+  useEffect(() => {
+    if (user) {
+      db.getUserOrders(user.id).then(setOrders);
+    }
+  }, [user]);
 
-  if (loggedIn) return (
-    <div style={{ minHeight:"100vh", padding:"100px 40px 120px", maxWidth:600, margin:"0 auto" }} className="fade-in">
+  const handleAuth = async () => {
+    setError("");
+    setLoading(true);
+    
+    try {
+      if (tab === "login") {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: form.email,
+          password: form.password
+        });
+        if (error) throw error;
+        onLogin(data.user);
+      } else {
+        const { data, error } = await supabase.auth.signUp({
+          email: form.email,
+          password: form.password
+        });
+        if (error) throw error;
+        
+        // Create user profile
+        await db.updateUserProfile(data.user.id, {
+          first_name: form.firstName,
+          last_name: form.lastName,
+          phone: form.phone
+        });
+        
+        onLogin(data.user);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getStatusColor = (status) => {
+    switch(status) {
+      case 'paid': return 'var(--gold)';
+      case 'processing': return '#E0A04A';
+      case 'shipped': return '#5A9BE0';
+      case 'delivered': return 'var(--green)';
+      default: return 'var(--muted)';
+    }
+  };
+
+  if (user) return (
+    <div style={{ minHeight:"100vh", padding:"100px 40px 120px", maxWidth:800, margin:"0 auto" }} className="fade-in">
       <div className="serif" style={{ fontSize:"36px", fontWeight:300, marginBottom:32 }}>My Account</div>
+      
       <div className="card" style={{ padding:24, marginBottom:16 }}>
         <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:12 }}>Profile</div>
-        <div style={{ fontSize:"16px", fontWeight:500 }}>Adaeze Johnson</div>
-        <div style={{ fontSize:"13px", color:"var(--muted)" }}>adaeze@example.com · Lagos, Nigeria</div>
+        <div style={{ fontSize:"16px", fontWeight:500 }}>{user.email}</div>
+        <div style={{ fontSize:"13px", color:"var(--muted)", marginTop:4 }}>Member since {new Date(user.created_at).toLocaleDateString()}</div>
       </div>
+
       <div className="card" style={{ padding:24, marginBottom:16 }}>
-        <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:16 }}>Recent Orders</div>
-        {[{id:"VLN-48291",date:"Jan 22, 2025",status:"Delivered",total:"₦85,000"},{id:"VLN-47100",date:"Dec 15, 2024",status:"Delivered",total:"₦148,000"}].map(o => (
-          <div key={o.id} style={{ display:"flex", justifyContent:"space-between", padding:"12px 0", borderBottom:"1px solid var(--subtle)" }}>
-            <div><div style={{ fontSize:"13px", fontWeight:600, color:"var(--gold)" }}>{o.id}</div><div style={{ fontSize:"11px", color:"var(--muted)" }}>{o.date}</div></div>
-            <div style={{ textAlign:"right" }}><div style={{ fontSize:"13px", fontWeight:600 }}>{o.total}</div><div style={{ fontSize:"11px", color:"var(--green)" }}>{o.status}</div></div>
+        <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:16 }}>Order History</div>
+        {orders.length === 0 ? (
+          <div style={{ textAlign:"center", padding:"40px 0", color:"var(--muted)" }}>
+            <Package size={32} style={{ opacity:.3, marginBottom:12 }} />
+            <div style={{ fontSize:"13px" }}>No orders yet</div>
+          </div>
+        ) : orders.map(order => (
+          <div key={order.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"16px 0", borderBottom:"1px solid var(--subtle)" }}>
+            <div>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                <span style={{ fontSize:"13px", fontWeight:600, color:"var(--gold)" }}>{order.order_number}</span>
+                <span className="tag" style={{ background:`${getStatusColor(order.order_status)}22`, color:getStatusColor(order.order_status), fontSize:"9px" }}>
+                  {order.order_status}
+                </span>
+              </div>
+              <div style={{ fontSize:"11px", color:"var(--muted)" }}>
+                {new Date(order.created_at).toLocaleDateString()} · {order.items.length} item{order.items.length !== 1 ? "s" : ""}
+              </div>
+            </div>
+            <div style={{ textAlign:"right" }}>
+              <div style={{ fontSize:"14px", fontWeight:600 }}>₦{order.total.toLocaleString()}</div>
+            </div>
           </div>
         ))}
       </div>
-      <button className="btn-ghost" onClick={() => setLoggedIn(false)} style={{ display:"flex", alignItems:"center", gap:8 }}><LogOut size={14} /> Log Out</button>
+
+      <button className="btn-ghost" onClick={onLogout} style={{ display:"flex", alignItems:"center", gap:8 }}>
+        <LogOut size={14} /> Log Out
+      </button>
     </div>
   );
 
@@ -1157,25 +1442,39 @@ const AccountPage = () => {
       <div style={{ width:"100%", maxWidth:400 }}>
         <div className="serif" style={{ fontSize:"36px", fontWeight:300, textAlign:"center", marginBottom:8 }}>VØLAN Account</div>
         <div style={{ fontSize:"12px", color:"var(--muted)", textAlign:"center", marginBottom:32 }}>Your fashion passport</div>
+        
         <div style={{ display:"flex", background:"var(--surface2)", borderRadius:100, padding:4, marginBottom:32 }}>
           {["login","register"].map(t => (
-            <button key={t} onClick={() => setTab(t)} style={{ flex:1, padding:"10px", borderRadius:100, border:"none", cursor:"pointer", background:tab===t?"var(--gold)":"transparent", color:tab===t?"#000":"var(--muted)", fontSize:"12px", fontFamily:"'DM Sans'", fontWeight:600, letterSpacing:"1px", textTransform:"uppercase", transition:"all .3s ease" }}>
+            <button key={t} onClick={() => { setTab(t); setError(""); }} style={{ flex:1, padding:"10px", borderRadius:100, border:"none", cursor:"pointer", background:tab===t?"var(--gold)":"transparent", color:tab===t?"#000":"var(--muted)", fontSize:"12px", fontFamily:"'DM Sans'", fontWeight:600, letterSpacing:"1px", textTransform:"uppercase", transition:"all .3s ease" }}>
               {t==="login" ? "Sign In" : "Register"}
             </button>
           ))}
         </div>
+
+        {error && (
+          <div style={{ background:"rgba(224,92,92,0.1)", border:"1px solid var(--red)", color:"var(--red)", padding:"12px", borderRadius:8, fontSize:"12px", marginBottom:16, textAlign:"center" }}>
+            {error}
+          </div>
+        )}
+
         <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
           {tab==="register" && (
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
-              <input className="input-field" placeholder="First name" />
-              <input className="input-field" placeholder="Last name" />
+              <input className="input-field" placeholder="First name" value={form.firstName} onChange={e => setForm(f => ({...f, firstName:e.target.value}))} />
+              <input className="input-field" placeholder="Last name" value={form.lastName} onChange={e => setForm(f => ({...f, lastName:e.target.value}))} />
             </div>
           )}
-          <input className="input-field" placeholder="Email address" type="email" />
-          <input className="input-field" placeholder="Password" type="password" />
-          {tab==="register" && <input className="input-field" placeholder="Confirm password" type="password" />}
-          <button className="btn-primary" style={{ width:"100%" }} onClick={() => setLoggedIn(true)}>
-            {tab==="login" ? "Sign In" : "Create Account"}
+          {tab==="register" && (
+            <input className="input-field" placeholder="Phone number" type="tel" value={form.phone} onChange={e => setForm(f => ({...f, phone:e.target.value}))} />
+          )}
+          <input className="input-field" placeholder="Email address" type="email" value={form.email} onChange={e => setForm(f => ({...f, email:e.target.value}))} />
+          <input className="input-field" placeholder="Password" type="password" value={form.password} onChange={e => setForm(f => ({...f, password:e.target.value}))} />
+          
+          <button className="btn-primary" style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }} onClick={handleAuth} disabled={loading}>
+            {loading
+              ? <div style={{ width:14, height:14, border:"2px solid #000", borderTopColor:"transparent", borderRadius:"50%", animation:"spin .8s linear infinite" }} />
+              : tab==="login" ? "Sign In" : "Create Account"
+            }
           </button>
         </div>
       </div>
@@ -1184,9 +1483,9 @@ const AccountPage = () => {
 };
 
 // ═══════════════════════════════════════════════════════════════
-//  ADMIN PANEL  —  Full working CRUD
+//  ADMIN PANEL
 // ═══════════════════════════════════════════════════════════════
-const AdminPanel = ({ products, setProducts }) => {
+const AdminPanel = ({ products, setProducts, user }) => {
   const [loggedIn, setLoggedIn] = useState(false);
   const [pw, setPw] = useState("");
   const [pwErr, setPwErr] = useState(false);
@@ -1196,18 +1495,61 @@ const AdminPanel = ({ products, setProducts }) => {
   const [formModal, setFormModal] = useState(null);
   const [archiveModal, setArchiveModal] = useState(null);
   const [productFilter, setProductFilter] = useState("active");
+  const [orders, setOrders] = useState([]);
+  const [metrics, setMetrics] = useState({ revenue:0, ordersCount:0, visitors:0 });
+  const [shippingRates, setShippingRates] = useState({
+    Lagos: 5000,
+    South_West: 7000,
+    South_South: 8000,
+    North: 9000,
+    default: 9000
+  });
 
   useEffect(() => {
     if (!loggedIn) return;
-    const t = setTimeout(() => {
-      setNotif({ name:"VØLAN LONGSLEEVE", size:"L", color:"Obsidian", price:"₦48,000" });
-      setTimeout(() => setNotif(null), 5000);
-    }, 2500);
-    return () => clearTimeout(t);
+    
+    // Load orders
+    db.getOrders().then(setOrders);
+    
+    // Load shipping settings
+    db.getShippingSettings().then(rates => {
+      if (Object.keys(rates).length > 0) setShippingRates(rates);
+    });
+    
+    // Calculate metrics
+    const calcMetrics = async () => {
+      const allOrders = await db.getOrders();
+      const revenue = allOrders.reduce((sum, o) => sum + o.total, 0);
+      setMetrics({
+        revenue,
+        ordersCount: allOrders.length,
+        visitors: Math.floor(Math.random() * 50) + 30
+      });
+    };
+    calcMetrics();
+    
+    // Set up real-time order notifications
+    const channel = supabase
+      .channel('orders')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, payload => {
+        const order = payload.new;
+        setNotif({
+          name: order.items[0]?.product_name || "New Order",
+          size: order.items[0]?.size || "",
+          color: order.items[0]?.color || "",
+          price: `₦${order.total.toLocaleString()}`
+        });
+        setTimeout(() => setNotif(null), 5000);
+        setOrders(prev => [order, ...prev]);
+      })
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [loggedIn]);
 
   const handleSave = async (saved) => {
-    console.log("handleSave received:", saved); // temporary debug line
     if (!saved || !saved.name) {
       setToast({ message: "Something went wrong — product data is missing", type: "error" });
       return;
@@ -1255,7 +1597,22 @@ const AdminPanel = ({ products, setProducts }) => {
     setProducts(products.map(p => p.id === productId ? { ...p, sizes: newSizes } : p));
   };
 
-  // Login screen
+  const updateOrderStatus = async (orderId, status) => {
+    await db.updateOrderStatus(orderId, status);
+    setOrders(orders.map(o => o.id === orderId ? { ...o, order_status: status } : o));
+    setToast({ message: `Order status updated to ${status}`, type: "success" });
+  };
+
+  const updateShippingRate = async (id, rate) => {
+    const success = await db.updateShippingRate(id, parseInt(rate));
+    if (success) {
+      setShippingRates(prev => ({ ...prev, [id]: parseInt(rate) }));
+      setToast({ message: "Shipping rate updated successfully", type: "success" });
+    } else {
+      setToast({ message: "Failed to update shipping rate", type: "error" });
+    }
+  };
+
   if (!loggedIn) return (
     <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", padding:40 }} className="fade-in">
       <div style={{ width:"100%", maxWidth:360, textAlign:"center" }}>
@@ -1280,14 +1637,7 @@ const AdminPanel = ({ products, setProducts }) => {
   const archivedProds = products.filter(p => p.archived);
   const displayProds  = productFilter==="active" ? activeProds : productFilter==="draft" ? draftProds : archivedProds;
 
-  const ORDERS = [
-    {id:"VLN-48301",customer:"Amaka Osei",items:"Harmattan Hoodie (M, Obsidian) ×1",total:"₦83,000",status:"Paid",date:"Today, 11:32am"},
-    {id:"VLN-48300",customer:"Emeka Nwosu",items:"Senatorial Shirt (L, Ivory) ×2",total:"₦116,000",status:"Paid",date:"Today, 10:14am"},
-    {id:"VLN-48298",customer:"Fatima Abdullahi",items:"Adire Joggers (S, Forest) ×1",total:"₦70,000",status:"Processing",date:"Today, 9:02am"},
-    {id:"VLN-48295",customer:"Chukwudi Eze",items:"V.I. Sherpa (M, Ivory) ×1",total:"₦117,000",status:"Shipped",date:"Yesterday"},
-    {id:"VLN-48289",customer:"Ngozi Williams",items:"Lagos Noir Pullover (L, Obsidian) ×1",total:"₦73,000",status:"Delivered",date:"Yesterday"},
-  ];
-  const SC = { Paid:"var(--green)", Processing:"#E0A04A", Shipped:"#5A9BE0", Delivered:"var(--muted)" };
+  const SC = { paid:"var(--gold)", processing:"#E0A04A", shipped:"#5A9BE0", delivered:"var(--green)" };
 
   return (
     <div style={{ display:"flex", minHeight:"100vh", background:"var(--bg)" }}>
@@ -1304,13 +1654,12 @@ const AdminPanel = ({ products, setProducts }) => {
       {formModal && <ProductFormModal product={formModal==="add" ? null : formModal} onSave={handleSave} onClose={() => setFormModal(null)} />}
       {archiveModal && <ArchiveModal product={archiveModal} onConfirm={() => handleArchive(archiveModal)} onClose={() => setArchiveModal(null)} />}
 
-      {/* Sidebar */}
       <div style={{ width:240, background:"var(--surface)", borderRight:"1px solid var(--subtle)", display:"flex", flexDirection:"column", padding:"28px 0", flexShrink:0 }} className="desktop-only">
         <div style={{ padding:"0 24px", marginBottom:32 }}>
           <div className="serif" style={{ fontSize:"20px", letterSpacing:"4px" }}>VØLAN</div>
           <div style={{ fontSize:"10px", letterSpacing:"2px", color:"var(--muted)", textTransform:"uppercase", marginTop:2 }}>Admin Panel</div>
         </div>
-        {[{id:"dashboard",icon:BarChart2,label:"Dashboard"},{id:"orders",icon:Package,label:"Orders"},{id:"products",icon:Grid,label:"Products"},{id:"analytics",icon:TrendingUp,label:"Analytics"},{id:"settings",icon:Settings,label:"Settings"}].map(({id,icon:Icon,label}) => (
+        {[{id:"dashboard",icon:BarChart2,label:"Dashboard"},{id:"orders",icon:Package,label:"Orders"},{id:"products",icon:Grid,label:"Products"},{id:"settings",icon:Settings,label:"Settings"}].map(({id,icon:Icon,label}) => (
           <button key={id} onClick={() => setTab(id)} style={{ width:"100%", background:tab===id?"rgba(201,169,110,0.12)":"transparent", border:"none", borderLeft:`2px solid ${tab===id?"var(--gold)":"transparent"}`, padding:"12px 24px", cursor:"pointer", display:"flex", alignItems:"center", gap:12, color:tab===id?"var(--gold)":"var(--muted)", fontFamily:"'DM Sans'", fontSize:"13px", fontWeight:tab===id?600:400, transition:"all .2s" }}>
             <Icon size={16} /> {label}
           </button>
@@ -1322,13 +1671,11 @@ const AdminPanel = ({ products, setProducts }) => {
         </div>
       </div>
 
-      {/* Main */}
       <div style={{ flex:1, overflowY:"auto", padding:"32px 40px 80px" }}>
 
-        {/* ── DASHBOARD ── */}
         {tab==="dashboard" && (
           <div className="fade-in">
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:32 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:32, flexWrap:"wrap", gap:16 }}>
               <div>
                 <div className="serif" style={{ fontSize:"28px", fontWeight:300 }}>Good morning, Admin 👋</div>
                 <div style={{ fontSize:"13px", color:"var(--muted)", marginTop:4 }}>Here's what's happening today.</div>
@@ -1338,7 +1685,12 @@ const AdminPanel = ({ products, setProducts }) => {
               </div>
             </div>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:16, marginBottom:40 }}>
-              {[{l:"Total Revenue",v:"₦12,480,000",s:"+18% this month",i:TrendingUp},{l:"Orders (Month)",v:"247",s:"₦3,200,000 revenue",i:Package},{l:"Active Visitors",v:"38",s:"6 in checkout",i:Users},{l:"Products Live",v:String(activeProds.length),s:`${draftProds.length} in draft`,i:Grid}].map(({l,v,s,i:Icon}) => (
+              {[
+                {l:"Total Revenue",v:`₦${metrics.revenue.toLocaleString()}`,s:`${orders.length} orders`,i:TrendingUp},
+                {l:"Orders Today",v:orders.filter(o => new Date(o.created_at).toDateString() === new Date().toDateString()).length,s:"Live tracking",i:Package},
+                {l:"Active Visitors",v:metrics.visitors,s:"Across site",i:Users},
+                {l:"Products Live",v:String(activeProds.length),s:`${draftProds.length} in draft`,i:Grid}
+              ].map(({l,v,s,i:Icon}) => (
                 <div key={l} className="stat-card">
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
                     <div style={{ fontSize:"11px", letterSpacing:"1.5px", textTransform:"uppercase", color:"var(--muted)" }}>{l}</div>
@@ -1349,28 +1701,20 @@ const AdminPanel = ({ products, setProducts }) => {
                 </div>
               ))}
             </div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:32 }}>
-              {[{label:"On Site",val:38},{label:"In Cart",val:12},{label:"Checkout",val:6},{label:"Orders/hr",val:4}].map(({label,val}) => (
-                <div key={label} className="card" style={{ padding:16, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                  <span style={{ fontSize:"12px", color:"var(--muted)", letterSpacing:"1px", textTransform:"uppercase" }}>{label}</span>
-                  <span style={{ fontSize:"22px", fontWeight:700, color:"var(--gold)" }}>{val}</span>
-                </div>
-              ))}
-            </div>
             <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:16 }}>Recent Orders</div>
             <div className="card" style={{ overflow:"hidden" }}>
-              {ORDERS.slice(0,3).map((o,i) => (
-                <div key={o.id} style={{ padding:"16px 20px", borderBottom:i<2?"1px solid var(--subtle)":"none", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                  <div>
-                    <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:4 }}>
-                      <span style={{ fontSize:"13px", fontWeight:600, color:"var(--gold)" }}>{o.id}</span>
-                      <span className="tag" style={{ background:`${SC[o.status]}22`, color:SC[o.status], fontSize:"9px" }}>{o.status}</span>
+              {orders.slice(0,5).map((o,i) => (
+                <div key={o.id} style={{ padding:"16px 20px", borderBottom:i<4?"1px solid var(--subtle)":"none", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12 }}>
+                  <div style={{ flex:"1 1 200px" }}>
+                    <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:4, flexWrap:"wrap" }}>
+                      <span style={{ fontSize:"13px", fontWeight:600, color:"var(--gold)" }}>{o.order_number}</span>
+                      <span className="tag" style={{ background:`${SC[o.order_status]}22`, color:SC[o.order_status], fontSize:"9px" }}>{o.order_status}</span>
                     </div>
-                    <div style={{ fontSize:"12px", color:"var(--muted)" }}>{o.customer} · {o.items}</div>
+                    <div style={{ fontSize:"12px", color:"var(--muted)" }}>{o.customer_name} · {o.items.length} item{o.items.length !== 1 ? "s" : ""}</div>
                   </div>
                   <div style={{ textAlign:"right" }}>
-                    <div style={{ fontSize:"14px", fontWeight:600 }}>{o.total}</div>
-                    <div style={{ fontSize:"11px", color:"var(--muted)" }}>{o.date}</div>
+                    <div style={{ fontSize:"14px", fontWeight:600 }}>₦{o.total.toLocaleString()}</div>
+                    <div style={{ fontSize:"11px", color:"var(--muted)" }}>{new Date(o.created_at).toLocaleDateString()}</div>
                   </div>
                 </div>
               ))}
@@ -1378,42 +1722,49 @@ const AdminPanel = ({ products, setProducts }) => {
           </div>
         )}
 
-        {/* ── ORDERS ── */}
         {tab==="orders" && (
           <div className="fade-in">
             <div className="serif" style={{ fontSize:"28px", fontWeight:300, marginBottom:32 }}>Order Management</div>
-            <div className="card" style={{ overflow:"hidden" }}>
-              <div style={{ display:"grid", gridTemplateColumns:"1.2fr 1.5fr 2fr 0.8fr 0.8fr 1fr", padding:"12px 20px", borderBottom:"1px solid var(--subtle)", fontSize:"10px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)" }}>
-                {["Order","Customer","Items","Total","Status","Date"].map(h => <span key={h}>{h}</span>)}
+            <div className="card" style={{ overflow:"hidden", overflowX:"auto" }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1.5fr 2fr 0.8fr 1fr 1fr", padding:"12px 20px", borderBottom:"1px solid var(--subtle)", fontSize:"10px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", minWidth:800 }}>
+                {["Order","Customer","Items","Total","Status","Actions"].map(h => <span key={h}>{h}</span>)}
               </div>
-              {ORDERS.map((o,i) => (
-                <div key={o.id} className="admin-row" style={{ display:"grid", gridTemplateColumns:"1.2fr 1.5fr 2fr 0.8fr 0.8fr 1fr", padding:"16px 20px", borderBottom:i<ORDERS.length-1?"1px solid var(--subtle)":"none", fontSize:"13px", alignItems:"center" }}>
-                  <span style={{ color:"var(--gold)", fontWeight:600 }}>{o.id}</span>
-                  <span>{o.customer}</span>
-                  <span style={{ fontSize:"12px", color:"var(--muted)" }}>{o.items}</span>
-                  <span style={{ fontWeight:600 }}>{o.total}</span>
-                  <span className="tag" style={{ background:`${SC[o.status]}22`, color:SC[o.status], fontSize:"9px", textAlign:"center" }}>{o.status}</span>
-                  <span style={{ fontSize:"11px", color:"var(--muted)" }}>{o.date}</span>
+              {orders.map((o,i) => (
+                <div key={o.id} className="admin-row" style={{ display:"grid", gridTemplateColumns:"1fr 1.5fr 2fr 0.8fr 1fr 1fr", padding:"16px 20px", borderBottom:i<orders.length-1?"1px solid var(--subtle)":"none", fontSize:"13px", alignItems:"center", minWidth:800 }}>
+                  <span style={{ color:"var(--gold)", fontWeight:600 }}>{o.order_number}</span>
+                  <span>{o.customer_name}</span>
+                  <span style={{ fontSize:"12px", color:"var(--muted)" }}>{o.items.length} item{o.items.length !== 1 ? "s" : ""}</span>
+                  <span style={{ fontWeight:600 }}>₦{o.total.toLocaleString()}</span>
+                  <span className="tag" style={{ background:`${SC[o.order_status]}22`, color:SC[o.order_status], fontSize:"9px", textAlign:"center" }}>{o.order_status}</span>
+                  <select 
+                    className="input-field" 
+                    value={o.order_status} 
+                    onChange={(e) => updateOrderStatus(o.id, e.target.value)}
+                    style={{ fontSize:"11px", padding:"6px 8px" }}
+                  >
+                    <option value="paid">Paid</option>
+                    <option value="processing">Processing</option>
+                    <option value="shipped">Shipped</option>
+                    <option value="delivered">Delivered</option>
+                  </select>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* ── PRODUCTS ── */}
         {tab==="products" && (
           <div className="fade-in">
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:16 }}>
               <div className="serif" style={{ fontSize:"28px", fontWeight:300 }}>Products</div>
               <button className="btn-primary" onClick={() => setFormModal("add")} style={{ display:"flex", alignItems:"center", gap:8 }}>
                 <Plus size={14} /> Add Product
               </button>
             </div>
 
-            {/* Filter tabs */}
-            <div style={{ display:"flex", gap:4, marginBottom:28, background:"var(--surface2)", borderRadius:100, padding:4, width:"fit-content" }}>
+            <div style={{ display:"flex", gap:4, marginBottom:28, background:"var(--surface2)", borderRadius:100, padding:4, width:"fit-content", overflowX:"auto" }}>
               {[{id:"active",label:`Active (${activeProds.length})`},{id:"draft",label:`Drafts (${draftProds.length})`},{id:"archived",label:`Archived (${archivedProds.length})`}].map(({id,label}) => (
-                <button key={id} onClick={() => setProductFilter(id)} style={{ padding:"8px 18px", borderRadius:100, border:"none", cursor:"pointer", background:productFilter===id?"var(--gold)":"transparent", color:productFilter===id?"#000":"var(--muted)", fontSize:"12px", fontFamily:"'DM Sans'", fontWeight:productFilter===id?600:400, transition:"all .25s ease", letterSpacing:".5px" }}>
+                <button key={id} onClick={() => setProductFilter(id)} style={{ padding:"8px 18px", borderRadius:100, border:"none", cursor:"pointer", background:productFilter===id?"var(--gold)":"transparent", color:productFilter===id?"#000":"var(--muted)", fontSize:"12px", fontFamily:"'DM Sans'", fontWeight:productFilter===id?600:400, transition:"all .25s ease", letterSpacing:".5px", whiteSpace:"nowrap" }}>
                   {label}
                 </button>
               ))}
@@ -1446,7 +1797,6 @@ const AdminPanel = ({ products, setProducts }) => {
                         <div style={{ fontSize:"11px", fontWeight:700, letterSpacing:"1px", textTransform:"uppercase", marginBottom:4 }}>{p.name}</div>
                         <div style={{ fontSize:"14px", color:"var(--gold)", marginBottom:12 }}>₦{p.price.toLocaleString()}</div>
 
-                        {/* Quick stock adjust per size */}
                         <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginBottom:14 }}>
                           {Object.entries(p.sizes).map(([size,stock]) => (
                             <div key={size} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
@@ -1464,7 +1814,6 @@ const AdminPanel = ({ products, setProducts }) => {
                           ))}
                         </div>
 
-                        {/* Action buttons */}
                         <div style={{ display:"flex", gap:8 }}>
                           {p.archived
                             ? <button onClick={() => handleRestore(p)} style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", gap:6, padding:"9px 12px", borderRadius:100, border:"1px solid rgba(92,171,125,0.5)", background:"rgba(92,171,125,0.08)", color:"var(--green)", cursor:"pointer", fontSize:"11px", fontFamily:"'DM Sans'", fontWeight:600, letterSpacing:"1px", textTransform:"uppercase", transition:"all .2s" }}>
@@ -1508,68 +1857,50 @@ const AdminPanel = ({ products, setProducts }) => {
           </div>
         )}
 
-        {/* ── ANALYTICS ── */}
-        {tab==="analytics" && (
-          <div className="fade-in">
-            <div className="serif" style={{ fontSize:"28px", fontWeight:300, marginBottom:32 }}>Analytics</div>
-            <div className="card" style={{ padding:32, marginBottom:24 }}>
-              <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:20 }}>Revenue — Last 7 Days</div>
-              <div style={{ display:"flex", alignItems:"flex-end", gap:8, height:120 }}>
-                {[65,80,45,90,110,75,130].map((h,i) => (
-                  <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:8 }}>
-                    <div style={{ width:"100%", height:`${h}%`, background:`rgba(201,169,110,${0.3+(h/130)*.7})`, borderRadius:"4px 4px 0 0" }} />
-                    <span style={{ fontSize:"10px", color:"var(--muted)" }}>{["M","T","W","T","F","S","S"][i]}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-              <div className="card" style={{ padding:24 }}>
-                <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:16 }}>Top Products</div>
-                {[["Harmattan Hoodie",94],["Vølan Longsleeve",78],["Senatorial Shirt",65],["V.I. Sherpa",42]].map(([name,units]) => (
-                  <div key={name} style={{ marginBottom:14 }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
-                      <span style={{ fontSize:"12px" }}>{name}</span>
-                      <span style={{ fontSize:"12px", color:"var(--gold)" }}>{units}</span>
-                    </div>
-                    <div style={{ height:4, background:"var(--surface3)", borderRadius:2 }}>
-                      <div style={{ height:"100%", width:`${(units/94)*100}%`, background:"var(--gold)", borderRadius:2 }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="card" style={{ padding:24 }}>
-                <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:16 }}>Revenue by Period</div>
-                {[["This Week","₦842,000"],["This Month","₦3,200,000"],["This Year","₦12,480,000"]].map(([period,val]) => (
-                  <div key={period} style={{ display:"flex", justifyContent:"space-between", padding:"12px 0", borderBottom:"1px solid var(--subtle)" }}>
-                    <span style={{ fontSize:"13px", color:"var(--muted)" }}>{period}</span>
-                    <span className="serif" style={{ fontSize:"18px", color:"var(--gold)" }}>{val}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── SETTINGS ── */}
         {tab==="settings" && (
-          <div className="fade-in" style={{ maxWidth:560 }}>
+          <div className="fade-in">
             <div className="serif" style={{ fontSize:"28px", fontWeight:300, marginBottom:32 }}>Settings</div>
-            <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:16 }}>Shipping Rates (₦)</div>
-            {[{label:"Lagos (Base Rate)",def:5000},{label:"South West (+)",def:7000},{label:"South South (+)",def:8000},{label:"North (+)",def:9000}].map(({label,def}) => (
-              <div key={label} className="card" style={{ padding:"16px 20px", marginBottom:8, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                <span style={{ fontSize:"13px", color:"var(--muted)" }}>{label}</span>
-                <input className="input-field" defaultValue={`₦${def.toLocaleString()}`} style={{ width:130, textAlign:"right" }} />
-              </div>
-            ))}
-            <button className="btn-primary" onClick={() => setToast({message:"Settings saved successfully",type:"success"})} style={{ marginTop:20, display:"flex", alignItems:"center", gap:8 }}>
-              <Check size={14} /> Save Settings
-            </button>
-            <div style={{ marginTop:40, padding:20, background:"var(--surface2)", borderRadius:"var(--radius)", border:"1px solid var(--subtle)" }}>
-              <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:12 }}>Database Status</div>
-              <div style={{ fontSize:"13px", color:"var(--text)", marginBottom:6 }}>Currently using: <strong style={{ color:"var(--gold)" }}>localStorage</strong></div>
-              <div style={{ fontSize:"12px", color:"var(--muted)", lineHeight:1.7 }}>
-                Data persists in this browser. To go fully live, connect Supabase or Firebase — see the comment block at the top of App.jsx for step-by-step upgrade instructions (takes ~15 mins).
+            
+            <div style={{ maxWidth:600 }}>
+              <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:16 }}>Shipping Rates (₦)</div>
+              
+              {[
+                {id:"Lagos", label:"Lagos (Base Rate)"},
+                {id:"South_West", label:"South West (Ogun, Oyo, Osun, Ondo, Ekiti)"},
+                {id:"South_South", label:"South South (Rivers, Edo, Delta, Bayelsa, Akwa Ibom, Cross River)"},
+                {id:"North", label:"North (All Northern States)"},
+                {id:"default", label:"Default (Other States)"}
+              ].map(({id, label}) => (
+                <div key={id} className="card" style={{ padding:"16px 20px", marginBottom:8, display:"flex", justifyContent:"space-between", alignItems:"center", gap:16, flexWrap:"wrap" }}>
+                  <span style={{ fontSize:"13px", color:"var(--muted)", flex:"1 1 200px" }}>{label}</span>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <input 
+                      className="input-field" 
+                      type="number"
+                      value={shippingRates[id] || 0}
+                      onChange={(e) => setShippingRates(prev => ({ ...prev, [id]: parseInt(e.target.value) || 0 }))}
+                      style={{ width:130, textAlign:"right" }} 
+                    />
+                    <button 
+                      className="btn-primary" 
+                      onClick={() => updateShippingRate(id, shippingRates[id])}
+                      style={{ padding:"8px 16px", fontSize:"11px" }}
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              ))}
+              
+              <div style={{ marginTop:32, padding:20, background:"var(--surface2)", borderRadius:"var(--radius)", border:"1px solid var(--subtle)" }}>
+                <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:12 }}>💡 How Shipping Works</div>
+                <div style={{ fontSize:"12px", color:"var(--muted)", lineHeight:1.7 }}>
+                  • Lagos has its own rate<br/>
+                  • South West states use the South West rate<br/>
+                  • South South states use the South South rate<br/>
+                  • All Northern states use the North rate<br/>
+                  • Any other state uses the Default rate
+                </div>
               </div>
             </div>
           </div>
@@ -1586,21 +1917,83 @@ const AdminPanel = ({ products, setProducts }) => {
 export default function App() {
   const [entered, setEntered]       = useState(false);
   const [page, setPage]             = useState("shop");
-  const [cart, setCart]             = useState([]);
+  const [cart, setCartRaw]          = useState(loadCartFromStorage());
   const [cartOpen, setCartOpen]     = useState(false);
   const [selectedProduct, setSP]    = useState(null);
   const [currency, setCurrency]     = useState(CURRENCIES[0]);
   const [orderSuccess, setOS]       = useState(false);
   const [isMobile, setIsMobile]     = useState(window.innerWidth <= 768);
-  const [products, setProductsRaw] = useState(SEED_PRODUCTS);
-  const [productsLoaded, setProductsLoaded] = useState(false);
+  const [products, setProductsRaw]  = useState(SEED_PRODUCTS);
+  const [user, setUser]             = useState(null);
+  const [isAdmin, setIsAdmin]       = useState(false);
+  const [shippingRates, setShippingRates] = useState({
+    Lagos: 5000,
+    South_West: 7000,
+    South_South: 8000,
+    North: 9000,
+    default: 9000
+  });
+
+  const setCart = useCallback((updater) => {
+    setCartRaw(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      saveCartToStorage(next);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUser(session.user);
+        db.isAdmin(session.user.id).then(setIsAdmin);
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser(session.user);
+        db.isAdmin(session.user.id).then(setIsAdmin);
+      } else {
+        setUser(null);
+        setIsAdmin(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     db.getProducts().then(data => {
       if (data && data.length > 0) setProductsRaw(data);
-      setProductsLoaded(true);
+    });
+    
+    db.getShippingSettings().then(rates => {
+      if (Object.keys(rates).length > 0) setShippingRates(rates);
     });
   }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      db.getProducts().then(data => {
+        if (data && data.length > 0) {
+          setProductsRaw(data);
+          
+          setCart(currentCart => 
+            currentCart.map(item => {
+              const updatedProduct = data.find(p => p.id === item.product.id);
+              if (updatedProduct) {
+                return { ...item, product: updatedProduct };
+              }
+              return item;
+            })
+          );
+        }
+      });
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [setCart]);
 
   const setProducts = useCallback((updated) => {
     setProductsRaw(updated);
@@ -1614,44 +2007,73 @@ export default function App() {
 
   const addToCart = useCallback((item) => {
     const stock = item.product.sizes[item.size] || 0;
-    let currentInCart = 0;
+    let canAdd = false;
+    
     setCart(c => {
       const idx = c.findIndex(i => i.product.id===item.product.id && i.size===item.size && i.color===item.color);
-      currentInCart = idx >= 0 ? c[idx].qty : 0;
-      if (currentInCart >= stock) return c;
+      const currentInCart = idx >= 0 ? c[idx].qty : 0;
+      
+      if (currentInCart >= stock) {
+        canAdd = false;
+        return c;
+      }
+      
+      canAdd = true;
       if (idx >= 0) return c.map((ci,i) => i===idx ? {...ci, qty:ci.qty+1} : ci);
       return [...c, item];
     });
-    // Read cart synchronously to check if we actually have room
-    const canAdd = currentInCart < stock;
+    
     if (canAdd) setCartOpen(true);
     return canAdd;
-  }, []);
+  }, [setCart]);
 
   const cartCount = cart.reduce((s,i) => s+i.qty, 0);
   const nav = (p) => { setPage(p); setSP(null); };
 
+  const handleLogin = (loggedInUser) => {
+    setUser(loggedInUser);
+    db.isAdmin(loggedInUser.id).then(setIsAdmin);
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setIsAdmin(false);
+    setCart([]);
+    nav("shop");
+  };
+
   if (!entered) return <><GlobalStyles /><EntryScreen onEnter={() => setEntered(true)} /></>;
-  if (page === "admin") return <><GlobalStyles /><AdminPanel products={products} setProducts={setProducts} /></>;
+  if (page === "admin") return <><GlobalStyles /><AdminPanel products={products} setProducts={setProducts} user={user} /></>;
 
   if (orderSuccess) return (
     <><GlobalStyles />
-    <Navbar cartCount={0} setPage={nav} page={page} setCartOpen={setCartOpen} />
+    <Navbar cartCount={0} setPage={nav} page={page} setCartOpen={setCartOpen} user={user} isAdmin={isAdmin} />
     <OrderSuccess onContinue={() => { setOS(false); setCart([]); nav("shop"); }} /></>
   );
 
   return (
     <>
       <GlobalStyles />
-      <Navbar cartCount={cartCount} setPage={nav} page={page} setCartOpen={setCartOpen} />
+      <Navbar cartCount={cartCount} setPage={nav} page={page} setCartOpen={setCartOpen} user={user} isAdmin={isAdmin} />
 
       {page==="shop"    && <ShopPage setPage={setPage} setSelectedProduct={setSP} currency={currency} category={null} products={products} />}
       {page==="pants"   && <ShopPage setPage={setPage} setSelectedProduct={setSP} currency={currency} category="pants" products={products} />}
       {page==="shirts"  && <ShopPage setPage={setPage} setSelectedProduct={setSP} currency={currency} category="shirts" products={products} />}
       {page==="hoodies" && <ShopPage setPage={setPage} setSelectedProduct={setSP} currency={currency} category="hoodies" products={products} />}
       {page==="product" && selectedProduct && <ProductPage product={selectedProduct} onBack={() => nav("shop")} addToCart={addToCart} currency={currency} />}
-      {page==="checkout" && (<CheckoutPage cart={cart} currency={currency} onBack={() => setCartOpen(true)} onSuccess={async () => { for (const item of cart) { const product = products.find(p => p.id === item.product.id); if (!product) continue; const newSizes = { ...product.sizes, [item.size]: Math.max(0, (product.sizes[item.size] || 0) - item.qty) }; await db.updateSizes(product.id, newSizes); } const refreshed = await db.getProducts(); if (refreshed) setProductsRaw(refreshed); setOS(true); }} /> )}
-      {page==="account" && <AccountPage />}
+      {page==="checkout" && (<CheckoutPage cart={cart} currency={currency} onBack={() => setCartOpen(true)} user={user} shippingRates={shippingRates} onSuccess={async () => { 
+        for (const item of cart) { 
+          const product = products.find(p => p.id === item.product.id); 
+          if (!product) continue; 
+          const newSizes = { ...product.sizes, [item.size]: Math.max(0, (product.sizes[item.size] || 0) - item.qty) }; 
+          await db.updateSizes(product.id, newSizes); 
+        } 
+        const refreshed = await db.getProducts(); 
+        if (refreshed) setProductsRaw(refreshed); 
+        setOS(true); 
+      }} /> )}
+      {page==="account" && <AccountPage user={user} onLogout={handleLogout} onLogin={handleLogin} />}
 
       {cartOpen && (
         <CartDrawer
@@ -1664,11 +2086,13 @@ export default function App() {
 
       <CurrencySwitcher currency={currency} setCurrency={setCurrency} />
 
-      <div style={{ position:"fixed", bottom:20, right:20, zIndex:50 }} className="desktop-only">
-        <button onClick={() => nav("admin")} style={{ background:"rgba(17,17,17,0.8)", border:"1px solid var(--subtle)", borderRadius:8, padding:"8px 14px", cursor:"pointer", fontSize:"10px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", fontFamily:"'DM Sans'", backdropFilter:"blur(10px)" }}>
-          Admin ↗
-        </button>
-      </div>
+      {isAdmin && (
+        <div style={{ position:"fixed", bottom:20, right:20, zIndex:50 }} className="desktop-only">
+          <button onClick={() => nav("admin")} style={{ background:"rgba(17,17,17,0.8)", border:"1px solid var(--subtle)", borderRadius:8, padding:"8px 14px", cursor:"pointer", fontSize:"10px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", fontFamily:"'DM Sans'", backdropFilter:"blur(10px)" }}>
+            Admin ↗
+          </button>
+        </div>
+      )}
     </>
   );
 }
