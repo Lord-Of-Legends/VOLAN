@@ -1686,12 +1686,15 @@ const AdminPanel = ({ products, setProducts, user }) => {
   useEffect(() => {
     if (!loggedIn) return;
     
+    // Load initial orders
     db.getOrders().then(setOrders);
     
+    // Load shipping settings
     db.getShippingSettings().then(rates => {
       if (Object.keys(rates).length > 0) setShippingRates(rates);
     });
     
+    // Calculate initial metrics
     const calcMetrics = async () => {
       const allOrders = await db.getOrders();
       const revenue = allOrders.reduce((sum, o) => sum + o.total, 0);
@@ -1704,35 +1707,50 @@ const AdminPanel = ({ products, setProducts, user }) => {
     };
     calcMetrics();
     
+    // Set up real-time order notifications
     const channel = supabase
-      .channel('orders-realtime')
-      .on('postgres_changes', { 
-        event: 'INSERT', 
-        schema: 'public', 
-        table: 'orders' 
-      }, payload => {
-        const order = payload.new;
-        
-        const firstItem = Array.isArray(order.items) && order.items.length > 0 ? order.items[0] : null;
-        setNotif({
-          name: firstItem?.product_name || "New Order",
-          size: firstItem?.size || "",
-          color: firstItem?.color || "",
-          price: `₦${order.total.toLocaleString()}`
-        });
-        setTimeout(() => setNotif(null), 5000);
-        
-        setOrders(prev => [order, ...prev]);
-        
-        setMetrics(prev => ({
-          ...prev,
-          revenue: prev.revenue + order.total,
-          ordersCount: prev.ordersCount + 1
-        }));
-      })
-      .subscribe();
+      .channel('orders-realtime-admin')
+      .on(
+        'postgres_changes',
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'orders' 
+        },
+        (payload) => {
+          console.log('New order received!', payload);
+          const order = payload.new;
+          
+          // Show notification popup
+          const firstItem = Array.isArray(order.items) && order.items.length > 0 ? order.items[0] : null;
+          setNotif({
+            name: firstItem?.product_name || "New Order",
+            size: firstItem?.size || "",
+            color: firstItem?.color || "",
+            price: `₦${order.total.toLocaleString()}`
+          });
+          setTimeout(() => setNotif(null), 5000);
+          
+          // Add to orders list at the top
+          setOrders(prev => [order, ...prev]);
+          
+          // Update metrics immediately
+          setMetrics(prev => ({
+            ...prev,
+            revenue: prev.revenue + order.total,
+            ordersCount: prev.ordersCount + 1
+          }));
+          
+          console.log('Order added to state, metrics updated');
+        }
+      )
+      .subscribe((status) => {
+        console.log('Subscription status:', status);
+      });
     
+    // Cleanup
     return () => {
+      console.log('Cleaning up subscription');
       supabase.removeChannel(channel);
     };
   }, [loggedIn]);
