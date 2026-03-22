@@ -3,7 +3,7 @@ import {
   ShoppingBag, X, ChevronRight, ChevronLeft, User, Check,
   Package, TrendingUp, Users, LogOut, Plus, Minus, BarChart2,
   Settings, Home, Grid, ImagePlus, Trash2, Edit2, AlertTriangle,
-  RotateCcw, Eye, EyeOff, Mail, Lock, MapPin
+  RotateCcw, Eye, EyeOff, Mail, Lock, MapPin, ChevronDown, ChevronUp, Search
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -12,91 +12,15 @@ const supabase = createClient(
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdqYm1wZ2hybG5vemVwZHplcnlrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzMDI3NjQsImV4cCI6MjA4Nzg3ODc2NH0.r38P1XVZck2p0vN3IezcA6_dDkKUPjWSA_LVEwBIgLg"
 );
 
-// ═══════════════════════════════════════════════════════════════
-//  DATABASE SETUP INSTRUCTIONS
-//
-//  Run these SQL commands in your Supabase SQL Editor:
-//
-//  -- Users table (Supabase Auth handles this, but we add custom fields)
-//  CREATE TABLE IF NOT EXISTS user_profiles (
-//    id UUID PRIMARY KEY REFERENCES auth.users(id),
-//    first_name TEXT,
-//    last_name TEXT,
-//    phone TEXT,
-//    created_at TIMESTAMPTZ DEFAULT NOW()
-//  );
-//
-//  -- Admin users
-//  CREATE TABLE IF NOT EXISTS admin_users (
-//    user_id UUID PRIMARY KEY REFERENCES auth.users(id),
-//    created_at TIMESTAMPTZ DEFAULT NOW()
-//  );
-//
-//  -- Orders table
-//  CREATE TABLE IF NOT EXISTS orders (
-//    id BIGSERIAL PRIMARY KEY,
-//    order_number TEXT UNIQUE NOT NULL,
-//    user_id UUID REFERENCES auth.users(id),
-//    customer_email TEXT NOT NULL,
-//    customer_name TEXT NOT NULL,
-//    customer_phone TEXT NOT NULL,
-//    shipping_address TEXT NOT NULL,
-//    shipping_city TEXT NOT NULL,
-//    shipping_state TEXT NOT NULL,
-//    items JSONB NOT NULL,
-//    subtotal BIGINT NOT NULL,
-//    shipping BIGINT NOT NULL,
-//    total BIGINT NOT NULL,
-//    payment_reference TEXT,
-//    payment_status TEXT DEFAULT 'pending',
-//    order_status TEXT DEFAULT 'paid',
-//    created_at TIMESTAMPTZ DEFAULT NOW(),
-//    updated_at TIMESTAMPTZ DEFAULT NOW()
-//  );
-//
-//  -- Shipping settings table
-//  CREATE TABLE IF NOT EXISTS shipping_settings (
-//    id TEXT PRIMARY KEY,
-//    rate BIGINT NOT NULL,
-//    updated_at TIMESTAMPTZ DEFAULT NOW()
-//  );
-//
-//  -- Insert default shipping rates
-//  INSERT INTO shipping_settings (id, rate) VALUES
-//    ('Lagos', 5000),
-//    ('South_West', 7000),
-//    ('South_South', 8000),
-//    ('North', 9000),
-//    ('default', 9000)
-//  ON CONFLICT (id) DO NOTHING;
-//
-//  -- Metrics table for admin dashboard
-//  CREATE TABLE IF NOT EXISTS metrics (
-//    id BIGSERIAL PRIMARY KEY,
-//    metric_type TEXT NOT NULL,
-//    value BIGINT NOT NULL,
-//    metadata JSONB,
-//    created_at TIMESTAMPTZ DEFAULT NOW()
-//  );
-//
-//  -- Enable Row Level Security
-//  ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
-//  ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
-//  ALTER TABLE admin_users ENABLE ROW LEVEL SECURITY;
-//  ALTER TABLE shipping_settings ENABLE ROW LEVEL SECURITY;
-//
-//  -- Policies
-//  CREATE POLICY "Users can view own profile" ON user_profiles FOR SELECT USING (auth.uid() = id);
-//  CREATE POLICY "Users can update own profile" ON user_profiles FOR UPDATE USING (auth.uid() = id);
-//  CREATE POLICY "Users can insert own profile" ON user_profiles FOR INSERT WITH CHECK (auth.uid() = id);
-//  CREATE POLICY "Users can view own orders" ON orders FOR SELECT USING (auth.uid() = user_id OR user_id IS NULL);
-//  CREATE POLICY "Anyone can insert orders" ON orders FOR INSERT WITH CHECK (true);
-//  CREATE POLICY "Admins can view all orders" ON orders FOR SELECT USING (auth.uid() IN (SELECT user_id FROM admin_users));
-//  CREATE POLICY "Admins can update orders" ON orders FOR UPDATE USING (auth.uid() IN (SELECT user_id FROM admin_users));
-//  CREATE POLICY "Anyone can view shipping settings" ON shipping_settings FOR SELECT USING (true);
-//  CREATE POLICY "Admins can update shipping settings" ON shipping_settings FOR UPDATE USING (auth.uid() IN (SELECT user_id FROM admin_users));
-//
-// ═══════════════════════════════════════════════════════════════
+// Generate a unique session ID for this browser session
+const getSessionId = () => {
+  let sessionId = sessionStorage.getItem('volan_session_id');
+  if (!sessionId) {
+    sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    sessionStorage.setItem('volan_session_id', sessionId);
+  }
+  return sessionId;
+};
 
 const db = {
   // Products
@@ -145,14 +69,17 @@ const db = {
     if (error) { console.error("Error fetching user orders:", error); return []; }
     return data || [];
   },
+  getOrderByNumber: async (orderNumber, email) => {
+    const { data, error } = await supabase.from("orders").select("*").eq("order_number", orderNumber).eq("customer_email", email).single();
+    if (error) { console.error("Error fetching order:", error); return null; }
+    return data;
+  },
   updateOrderStatus: async (orderId, status) => {
     const { error } = await supabase.from("orders").update({ order_status: status, updated_at: new Date().toISOString() }).eq("id", orderId);
     if (error) { console.error("Error updating order status:", error); return false; }
     return true;
   },
   verifyPayment: async (reference) => {
-    // In production, this would call a Supabase Edge Function that verifies with Paystack secret key
-    // For now, we simulate verification
     return { verified: true, status: "success" };
   },
   
@@ -200,6 +127,24 @@ const db = {
     const { error } = await supabase.from("shipping_settings").upsert({ id, rate, updated_at: new Date().toISOString() });
     if (error) { console.error("Error updating shipping rate:", error); return false; }
     return true;
+  },
+
+  // Active sessions
+  updateSession: async (sessionId, page) => {
+    await supabase.from("active_sessions").upsert({ 
+      session_id: sessionId, 
+      last_seen: new Date().toISOString(),
+      page 
+    });
+  },
+  getActiveSessions: async () => {
+    const { data, error } = await supabase
+      .from("active_sessions")
+      .select("*")
+      .gte("last_seen", new Date(Date.now() - 5 * 60 * 1000).toISOString());
+    
+    if (error) { console.error("Error fetching sessions:", error); return []; }
+    return data || [];
   }
 };
 
@@ -317,7 +262,6 @@ const NIGERIAN_STATES = [
   "Taraba","Yobe","Zamfara"
 ];
 
-// State-to-region mapping
 const STATE_REGIONS = {
   Lagos: "Lagos",
   Ogun: "South_West", Oyo: "South_West", Osun: "South_West", Ondo: "South_West", Ekiti: "South_West",
@@ -369,7 +313,6 @@ const isAllSoldOut = (sizes) => Object.values(sizes).every(s => s === 0);
 const genId = () => Date.now() + Math.floor(Math.random() * 9999);
 const genOrderNumber = () => `VLN-${Date.now().toString().slice(-8)}`;
 
-// LocalStorage cart helpers
 const CART_KEY = "volan_cart";
 const saveCartToStorage = (cart) => localStorage.setItem(CART_KEY, JSON.stringify(cart));
 const loadCartFromStorage = () => {
@@ -405,6 +348,226 @@ const Toast = ({ message, type, onDone }) => {
     <div className={`toast-banner toast-${type}`}>
       {type === "success" ? <Check size={16} /> : <AlertTriangle size={16} />}
       {message}
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  ORDER TRACKING PAGE (NEW)
+// ═══════════════════════════════════════════════════════════════
+const OrderTrackingPage = ({ onBack }) => {
+  const [orderNumber, setOrderNumber] = useState("");
+  const [email, setEmail] = useState("");
+  const [order, setOrder] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const trackOrder = async () => {
+    if (!orderNumber || !email) {
+      setError("Please enter both order number and email");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    
+    const result = await db.getOrderByNumber(orderNumber.trim(), email.trim());
+    
+    if (result) {
+      setOrder(result);
+      setError("");
+    } else {
+      setError("Order not found. Please check your order number and email.");
+      setOrder(null);
+    }
+    
+    setLoading(false);
+  };
+
+  const getStatusColor = (status) => {
+    switch(status) {
+      case 'paid': return 'var(--gold)';
+      case 'processing': return '#E0A04A';
+      case 'shipped': return '#5A9BE0';
+      case 'delivered': return 'var(--green)';
+      default: return 'var(--muted)';
+    }
+  };
+
+  const getStatusSteps = (status) => {
+    const steps = ['paid', 'processing', 'shipped', 'delivered'];
+    const currentIndex = steps.indexOf(status);
+    return steps.map((step, idx) => ({
+      name: step,
+      completed: idx <= currentIndex,
+      active: idx === currentIndex
+    }));
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", padding:"100px 40px 120px", maxWidth:800, margin:"0 auto" }} className="fade-in">
+      <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", color:"var(--muted)", fontSize:"12px", letterSpacing:"2px", textTransform:"uppercase", fontFamily:"'DM Sans'", marginBottom:32, display:"flex", alignItems:"center", gap:6 }}>
+        <ChevronLeft size={14} /> Back
+      </button>
+
+      <div className="serif" style={{ fontSize:"36px", fontWeight:300, marginBottom:8 }}>Track Your Order</div>
+      <p style={{ fontSize:"14px", color:"var(--muted)", marginBottom:32 }}>Enter your order details to check the status</p>
+
+      <div className="card" style={{ padding:32, marginBottom:24 }}>
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          <div>
+            <label style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", display:"block", marginBottom:8 }}>Order Number</label>
+            <input 
+              className="input-field" 
+              placeholder="e.g. VLN-12345678" 
+              value={orderNumber} 
+              onChange={e => setOrderNumber(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && trackOrder()}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", display:"block", marginBottom:8 }}>Email Address</label>
+            <input 
+              className="input-field" 
+              type="email"
+              placeholder="email@example.com" 
+              value={email} 
+              onChange={e => setEmail(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && trackOrder()}
+            />
+          </div>
+
+          {error && (
+            <div style={{ background:"rgba(224,92,92,0.1)", border:"1px solid var(--red)", color:"var(--red)", padding:"12px", borderRadius:8, fontSize:"13px", textAlign:"center" }}>
+              {error}
+            </div>
+          )}
+
+          <button 
+            className="btn-primary" 
+            onClick={trackOrder}
+            disabled={loading}
+            style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
+          >
+            {loading ? (
+              <><div style={{ width:14, height:14, border:"2px solid #000", borderTopColor:"transparent", borderRadius:"50%", animation:"spin .8s linear infinite" }} /> Searching...</>
+            ) : (
+              <><Search size={14} /> Track Order</>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {order && (
+        <div className="card fade-in" style={{ padding:32 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:24, flexWrap:"wrap", gap:16 }}>
+            <div>
+              <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:8 }}>Order Number</div>
+              <div style={{ fontSize:"24px", fontWeight:600, color:"var(--gold)" }}>{order.order_number}</div>
+            </div>
+            <span className="tag" style={{ background:`${getStatusColor(order.order_status)}22`, color:getStatusColor(order.order_status), padding:"8px 16px", fontSize:"11px" }}>
+              {order.order_status.toUpperCase()}
+            </span>
+          </div>
+
+          <div className="divider" style={{ marginBottom:24 }} />
+
+          {/* Order Status Timeline */}
+          <div style={{ marginBottom:32 }}>
+            <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:16 }}>Order Status</div>
+            <div style={{ display:"flex", justifyContent:"space-between", position:"relative" }}>
+              {/* Progress line */}
+              <div style={{ position:"absolute", top:"12px", left:"12px", right:"12px", height:"2px", background:"var(--subtle)" }}>
+                <div style={{ height:"100%", background:"var(--gold)", width:`${(getStatusSteps(order.order_status).filter(s => s.completed).length - 1) * 33.33}%`, transition:"width .5s ease" }} />
+              </div>
+              
+              {getStatusSteps(order.order_status).map((step, idx) => (
+                <div key={step.name} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", position:"relative", zIndex:1 }}>
+                  <div style={{ 
+                    width:24, 
+                    height:24, 
+                    borderRadius:"50%", 
+                    background: step.completed ? "var(--gold)" : "var(--surface2)", 
+                    border:`2px solid ${step.completed ? "var(--gold)" : "var(--subtle)"}`,
+                    display:"flex",
+                    alignItems:"center",
+                    justifyContent:"center",
+                    marginBottom:8,
+                    transition:"all .3s ease"
+                  }}>
+                    {step.completed && <Check size={12} style={{ color:"#000" }} />}
+                  </div>
+                  <div style={{ fontSize:"10px", letterSpacing:"1px", textTransform:"uppercase", color: step.active ? "var(--gold)" : step.completed ? "var(--text)" : "var(--muted)", fontWeight: step.active ? 600 : 400, textAlign:"center" }}>
+                    {step.name}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Order Details */}
+          <div style={{ background:"var(--surface2)", padding:20, borderRadius:8, marginBottom:20 }}>
+            <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:12 }}>Order Details</div>
+            <div style={{ display:"grid", gap:8, fontSize:"13px" }}>
+              <div style={{ display:"flex", justifyContent:"space-between" }}>
+                <span style={{ color:"var(--muted)" }}>Order Date:</span>
+                <span>{new Date(order.created_at).toLocaleDateString()}</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between" }}>
+                <span style={{ color:"var(--muted)" }}>Customer:</span>
+                <span>{order.customer_name}</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between" }}>
+                <span style={{ color:"var(--muted)" }}>Email:</span>
+                <span>{order.customer_email}</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between" }}>
+                <span style={{ color:"var(--muted)" }}>Phone:</span>
+                <span>{order.customer_phone}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Shipping Address */}
+          <div style={{ background:"var(--surface2)", padding:20, borderRadius:8, marginBottom:20 }}>
+            <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:12 }}>Shipping Address</div>
+            <div style={{ fontSize:"13px", lineHeight:1.6, color:"var(--text)" }}>
+              {order.shipping_address}<br/>
+              {order.shipping_city}, {order.shipping_state}
+            </div>
+          </div>
+
+          {/* Items */}
+          <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:12 }}>Items Ordered</div>
+          {order.items.map((item, idx) => (
+            <div key={idx} style={{ display:"flex", justifyContent:"space-between", padding:"12px 0", borderBottom: idx < order.items.length - 1 ? "1px solid var(--subtle)" : "none" }}>
+              <div>
+                <div style={{ fontSize:"12px", fontWeight:600 }}>{item.product_name}</div>
+                <div style={{ fontSize:"11px", color:"var(--muted)" }}>{item.size} · {item.color} · Qty: {item.qty}</div>
+              </div>
+              <div style={{ fontSize:"13px", fontWeight:600, color:"var(--gold)" }}>₦{(item.price * item.qty).toLocaleString()}</div>
+            </div>
+          ))}
+
+          <div className="divider" style={{ margin:"16px 0" }} />
+
+          {/* Order Total */}
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:"13px" }}>
+              <span style={{ color:"var(--muted)" }}>Subtotal</span>
+              <span>₦{order.subtotal.toLocaleString()}</span>
+            </div>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:"13px" }}>
+              <span style={{ color:"var(--muted)" }}>Shipping</span>
+              <span>₦{order.shipping.toLocaleString()}</span>
+            </div>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:"16px", fontWeight:600, marginTop:8 }}>
+              <span>Total</span>
+              <span style={{ color:"var(--gold)" }}>₦{order.total.toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -681,6 +844,7 @@ const Navbar = ({ cartCount, setPage, page, setCartOpen, user, isAdmin }) => {
           ))}
         </div>
         <div style={{ display:"flex", gap:4 }}>
+          <button className="btn-icon" onClick={() => setPage("track")} title="Track Order"><Package size={18} /></button>
           <button className="btn-icon" onClick={() => setPage("account")}><User size={18} /></button>
           <button className="btn-icon" style={{ position:"relative" }} onClick={() => setCartOpen(true)}>
             <ShoppingBag size={18} />
@@ -1044,7 +1208,6 @@ const CheckoutPage = ({ cart, currency, onBack, onSuccess, user, shippingRates }
 
   const sub = cart.reduce((s, i) => s + i.product.price * i.qty, 0);
   
-  // Calculate shipping based on state
   const getShipping = (state) => {
     const region = STATE_REGIONS[state];
     if (region) return shippingRates[region] || shippingRates.default;
@@ -1368,7 +1531,6 @@ const AccountPage = ({ user, onLogout, onLogin }) => {
         });
         if (error) throw error;
         
-        // Create user profile
         await db.updateUserProfile(data.user.id, {
           first_name: form.firstName,
           last_name: form.lastName,
@@ -1483,7 +1645,7 @@ const AccountPage = ({ user, onLogout, onLogin }) => {
 };
 
 // ═══════════════════════════════════════════════════════════════
-//  ADMIN PANEL
+//  ADMIN PANEL (WITH REAL-TIME FEATURES)
 // ═══════════════════════════════════════════════════════════════
 const AdminPanel = ({ products, setProducts, user }) => {
   const [loggedIn, setLoggedIn] = useState(false);
@@ -1496,6 +1658,7 @@ const AdminPanel = ({ products, setProducts, user }) => {
   const [archiveModal, setArchiveModal] = useState(null);
   const [productFilter, setProductFilter] = useState("active");
   const [orders, setOrders] = useState([]);
+  const [expandedOrders, setExpandedOrders] = useState({});
   const [metrics, setMetrics] = useState({ revenue:0, ordersCount:0, visitors:0 });
   const [shippingRates, setShippingRates] = useState({
     Lagos: 5000,
@@ -1505,42 +1668,67 @@ const AdminPanel = ({ products, setProducts, user }) => {
     default: 9000
   });
 
+  // Real-time active sessions tracking
   useEffect(() => {
     if (!loggedIn) return;
     
-    // Load orders
+    const updateActiveSessions = async () => {
+      const sessions = await db.getActiveSessions();
+      setMetrics(prev => ({ ...prev, visitors: sessions.length }));
+    };
+
+    updateActiveSessions();
+    const interval = setInterval(updateActiveSessions, 5000);
+    
+    return () => clearInterval(interval);
+  }, [loggedIn]);
+
+  useEffect(() => {
+    if (!loggedIn) return;
+    
     db.getOrders().then(setOrders);
     
-    // Load shipping settings
     db.getShippingSettings().then(rates => {
       if (Object.keys(rates).length > 0) setShippingRates(rates);
     });
     
-    // Calculate metrics
     const calcMetrics = async () => {
       const allOrders = await db.getOrders();
       const revenue = allOrders.reduce((sum, o) => sum + o.total, 0);
+      const sessions = await db.getActiveSessions();
       setMetrics({
         revenue,
         ordersCount: allOrders.length,
-        visitors: Math.floor(Math.random() * 50) + 30
+        visitors: sessions.length
       });
     };
     calcMetrics();
     
-    // Set up real-time order notifications
     const channel = supabase
-      .channel('orders')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, payload => {
+      .channel('orders-realtime')
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'orders' 
+      }, payload => {
         const order = payload.new;
+        
+        const firstItem = Array.isArray(order.items) && order.items.length > 0 ? order.items[0] : null;
         setNotif({
-          name: order.items[0]?.product_name || "New Order",
-          size: order.items[0]?.size || "",
-          color: order.items[0]?.color || "",
+          name: firstItem?.product_name || "New Order",
+          size: firstItem?.size || "",
+          color: firstItem?.color || "",
           price: `₦${order.total.toLocaleString()}`
         });
         setTimeout(() => setNotif(null), 5000);
+        
         setOrders(prev => [order, ...prev]);
+        
+        setMetrics(prev => ({
+          ...prev,
+          revenue: prev.revenue + order.total,
+          ordersCount: prev.ordersCount + 1
+        }));
       })
       .subscribe();
     
@@ -1548,6 +1736,13 @@ const AdminPanel = ({ products, setProducts, user }) => {
       supabase.removeChannel(channel);
     };
   }, [loggedIn]);
+
+  const toggleOrderExpand = (orderId) => {
+    setExpandedOrders(prev => ({
+      ...prev,
+      [orderId]: !prev[orderId]
+    }));
+  };
 
   const handleSave = async (saved) => {
     if (!saved || !saved.name) {
@@ -1647,7 +1842,7 @@ const AdminPanel = ({ products, setProducts, user }) => {
         <div className="notif-toast">
           <div style={{ fontSize:"10px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--gold)", marginBottom:6 }}>🛍 New Order</div>
           <div style={{ fontSize:"13px", fontWeight:600 }}>{notif.name}</div>
-          <div style={{ fontSize:"11px", color:"var(--muted)" }}>{notif.size}, {notif.color} — {notif.price}</div>
+          <div style={{ fontSize:"11px", color:"var(--muted)" }}>{notif.size && notif.color ? `${notif.size}, ${notif.color} — ` : ""}{notif.price}</div>
         </div>
       )}
 
@@ -1688,7 +1883,7 @@ const AdminPanel = ({ products, setProducts, user }) => {
               {[
                 {l:"Total Revenue",v:`₦${metrics.revenue.toLocaleString()}`,s:`${orders.length} orders`,i:TrendingUp},
                 {l:"Orders Today",v:orders.filter(o => new Date(o.created_at).toDateString() === new Date().toDateString()).length,s:"Live tracking",i:Package},
-                {l:"Active Visitors",v:metrics.visitors,s:"Across site",i:Users},
+                {l:"Active Visitors",v:metrics.visitors,s:"Last 5 minutes",i:Users},
                 {l:"Products Live",v:String(activeProds.length),s:`${draftProds.length} in draft`,i:Grid}
               ].map(({l,v,s,i:Icon}) => (
                 <div key={l} className="stat-card">
@@ -1704,18 +1899,38 @@ const AdminPanel = ({ products, setProducts, user }) => {
             <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:16 }}>Recent Orders</div>
             <div className="card" style={{ overflow:"hidden" }}>
               {orders.slice(0,5).map((o,i) => (
-                <div key={o.id} style={{ padding:"16px 20px", borderBottom:i<4?"1px solid var(--subtle)":"none", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12 }}>
-                  <div style={{ flex:"1 1 200px" }}>
-                    <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:4, flexWrap:"wrap" }}>
-                      <span style={{ fontSize:"13px", fontWeight:600, color:"var(--gold)" }}>{o.order_number}</span>
-                      <span className="tag" style={{ background:`${SC[o.order_status]}22`, color:SC[o.order_status], fontSize:"9px" }}>{o.order_status}</span>
+                <div key={o.id} style={{ borderBottom:i<4?"1px solid var(--subtle)":"none" }}>
+                  <div className="admin-row" style={{ padding:"16px 20px", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12, cursor:"pointer" }} onClick={() => toggleOrderExpand(o.id)}>
+                    <div style={{ flex:"1 1 200px" }}>
+                      <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:4, flexWrap:"wrap" }}>
+                        <span style={{ fontSize:"13px", fontWeight:600, color:"var(--gold)" }}>{o.order_number}</span>
+                        <span className="tag" style={{ background:`${SC[o.order_status]}22`, color:SC[o.order_status], fontSize:"9px" }}>{o.order_status}</span>
+                      </div>
+                      <div style={{ fontSize:"12px", color:"var(--muted)" }}>{o.customer_name} · {o.items.length} item{o.items.length !== 1 ? "s" : ""}</div>
                     </div>
-                    <div style={{ fontSize:"12px", color:"var(--muted)" }}>{o.customer_name} · {o.items.length} item{o.items.length !== 1 ? "s" : ""}</div>
+                    <div style={{ textAlign:"right", display:"flex", alignItems:"center", gap:12 }}>
+                      <div>
+                        <div style={{ fontSize:"14px", fontWeight:600 }}>₦{o.total.toLocaleString()}</div>
+                        <div style={{ fontSize:"11px", color:"var(--muted)" }}>{new Date(o.created_at).toLocaleDateString()}</div>
+                      </div>
+                      {expandedOrders[o.id] ? <ChevronUp size={16} style={{ color:"var(--muted)" }} /> : <ChevronDown size={16} style={{ color:"var(--muted)" }} />}
+                    </div>
                   </div>
-                  <div style={{ textAlign:"right" }}>
-                    <div style={{ fontSize:"14px", fontWeight:600 }}>₦{o.total.toLocaleString()}</div>
-                    <div style={{ fontSize:"11px", color:"var(--muted)" }}>{new Date(o.created_at).toLocaleDateString()}</div>
-                  </div>
+                  
+                  {expandedOrders[o.id] && (
+                    <div style={{ padding:"16px 20px", background:"var(--surface2)", borderTop:"1px solid var(--subtle)" }}>
+                      <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:12 }}>Items</div>
+                      {o.items.map((item, idx) => (
+                        <div key={idx} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderBottom: idx < o.items.length - 1 ? "1px solid var(--subtle)" : "none" }}>
+                          <div>
+                            <div style={{ fontSize:"12px", fontWeight:600 }}>{item.product_name}</div>
+                            <div style={{ fontSize:"11px", color:"var(--muted)" }}>{item.size} · {item.color} · Qty: {item.qty}</div>
+                          </div>
+                          <div style={{ fontSize:"13px", fontWeight:600, color:"var(--gold)" }}>₦{(item.price * item.qty).toLocaleString()}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -1725,28 +1940,83 @@ const AdminPanel = ({ products, setProducts, user }) => {
         {tab==="orders" && (
           <div className="fade-in">
             <div className="serif" style={{ fontSize:"28px", fontWeight:300, marginBottom:32 }}>Order Management</div>
-            <div className="card" style={{ overflow:"hidden", overflowX:"auto" }}>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1.5fr 2fr 0.8fr 1fr 1fr", padding:"12px 20px", borderBottom:"1px solid var(--subtle)", fontSize:"10px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", minWidth:800 }}>
-                {["Order","Customer","Items","Total","Status","Actions"].map(h => <span key={h}>{h}</span>)}
-              </div>
+            <div className="card" style={{ overflow:"hidden" }}>
               {orders.map((o,i) => (
-                <div key={o.id} className="admin-row" style={{ display:"grid", gridTemplateColumns:"1fr 1.5fr 2fr 0.8fr 1fr 1fr", padding:"16px 20px", borderBottom:i<orders.length-1?"1px solid var(--subtle)":"none", fontSize:"13px", alignItems:"center", minWidth:800 }}>
-                  <span style={{ color:"var(--gold)", fontWeight:600 }}>{o.order_number}</span>
-                  <span>{o.customer_name}</span>
-                  <span style={{ fontSize:"12px", color:"var(--muted)" }}>{o.items.length} item{o.items.length !== 1 ? "s" : ""}</span>
-                  <span style={{ fontWeight:600 }}>₦{o.total.toLocaleString()}</span>
-                  <span className="tag" style={{ background:`${SC[o.order_status]}22`, color:SC[o.order_status], fontSize:"9px", textAlign:"center" }}>{o.order_status}</span>
-                  <select 
-                    className="input-field" 
-                    value={o.order_status} 
-                    onChange={(e) => updateOrderStatus(o.id, e.target.value)}
-                    style={{ fontSize:"11px", padding:"6px 8px" }}
-                  >
-                    <option value="paid">Paid</option>
-                    <option value="processing">Processing</option>
-                    <option value="shipped">Shipped</option>
-                    <option value="delivered">Delivered</option>
-                  </select>
+                <div key={o.id} style={{ borderBottom:i<orders.length-1?"1px solid var(--subtle)":"none" }}>
+                  <div className="admin-row" style={{ padding:"16px 20px", display:"grid", gridTemplateColumns:"auto 1fr auto auto", gap:16, alignItems:"center", cursor:"pointer" }} onClick={() => toggleOrderExpand(o.id)}>
+                    <div>
+                      {expandedOrders[o.id] ? <ChevronUp size={16} style={{ color:"var(--muted)" }} /> : <ChevronDown size={16} style={{ color:"var(--muted)" }} />}
+                    </div>
+                    <div>
+                      <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:4, flexWrap:"wrap" }}>
+                        <span style={{ fontSize:"13px", fontWeight:600, color:"var(--gold)" }}>{o.order_number}</span>
+                        <span style={{ fontSize:"12px", color:"var(--muted)" }}>{o.customer_name}</span>
+                      </div>
+                      <div style={{ fontSize:"11px", color:"var(--muted)" }}>{o.items.length} item{o.items.length !== 1 ? "s" : ""} · {new Date(o.created_at).toLocaleDateString()}</div>
+                    </div>
+                    <div style={{ fontSize:"14px", fontWeight:600 }}>₦{o.total.toLocaleString()}</div>
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <select 
+                        className="input-field" 
+                        value={o.order_status} 
+                        onChange={(e) => updateOrderStatus(o.id, e.target.value)}
+                        style={{ fontSize:"11px", padding:"6px 8px", minWidth:120 }}
+                      >
+                        <option value="paid">Paid</option>
+                        <option value="processing">Processing</option>
+                        <option value="shipped">Shipped</option>
+                        <option value="delivered">Delivered</option>
+                      </select>
+                    </div>
+                  </div>
+                  
+                  {expandedOrders[o.id] && (
+                    <div style={{ padding:"20px", background:"var(--surface2)", borderTop:"1px solid var(--subtle)" }}>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
+                        <div>
+                          <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:8 }}>Customer Info</div>
+                          <div style={{ fontSize:"12px", lineHeight:1.6 }}>
+                            <div><strong>{o.customer_name}</strong></div>
+                            <div style={{ color:"var(--muted)" }}>{o.customer_email}</div>
+                            <div style={{ color:"var(--muted)" }}>{o.customer_phone}</div>
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:8 }}>Shipping Address</div>
+                          <div style={{ fontSize:"12px", lineHeight:1.6, color:"var(--muted)" }}>
+                            {o.shipping_address}<br/>
+                            {o.shipping_city}, {o.shipping_state}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", marginBottom:12 }}>Items Ordered</div>
+                      {o.items.map((item, idx) => (
+                        <div key={idx} style={{ display:"flex", justifyContent:"space-between", padding:"10px 0", borderBottom: idx < o.items.length - 1 ? "1px solid var(--subtle)" : "none" }}>
+                          <div>
+                            <div style={{ fontSize:"12px", fontWeight:600 }}>{item.product_name}</div>
+                            <div style={{ fontSize:"11px", color:"var(--muted)" }}>Size: {item.size} · Color: {item.color} · Quantity: {item.qty}</div>
+                          </div>
+                          <div style={{ fontSize:"13px", fontWeight:600, color:"var(--gold)" }}>₦{(item.price * item.qty).toLocaleString()}</div>
+                        </div>
+                      ))}
+
+                      <div style={{ marginTop:16, paddingTop:16, borderTop:"1px solid var(--subtle)", display:"flex", flexDirection:"column", gap:8 }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", fontSize:"12px" }}>
+                          <span style={{ color:"var(--muted)" }}>Subtotal:</span>
+                          <span>₦{o.subtotal.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display:"flex", justifyContent:"space-between", fontSize:"12px" }}>
+                          <span style={{ color:"var(--muted)" }}>Shipping:</span>
+                          <span>₦{o.shipping.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display:"flex", justifyContent:"space-between", fontSize:"14px", fontWeight:600, marginTop:4 }}>
+                          <span>Total:</span>
+                          <span style={{ color:"var(--gold)" }}>₦{o.total.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -1942,6 +2212,20 @@ export default function App() {
     });
   }, []);
 
+  // Track active sessions
+  useEffect(() => {
+    const sessionId = getSessionId();
+    
+    const updateSession = () => {
+      db.updateSession(sessionId, page);
+    };
+    
+    updateSession();
+    const interval = setInterval(updateSession, 30000); // Update every 30 seconds
+    
+    return () => clearInterval(interval);
+  }, [page]);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
@@ -2062,6 +2346,7 @@ export default function App() {
       {page==="shirts"  && <ShopPage setPage={setPage} setSelectedProduct={setSP} currency={currency} category="shirts" products={products} />}
       {page==="hoodies" && <ShopPage setPage={setPage} setSelectedProduct={setSP} currency={currency} category="hoodies" products={products} />}
       {page==="product" && selectedProduct && <ProductPage product={selectedProduct} onBack={() => nav("shop")} addToCart={addToCart} currency={currency} />}
+      {page==="track" && <OrderTrackingPage onBack={() => nav("shop")} />}
       {page==="checkout" && (<CheckoutPage cart={cart} currency={currency} onBack={() => setCartOpen(true)} user={user} shippingRates={shippingRates} onSuccess={async () => { 
         for (const item of cart) { 
           const product = products.find(p => p.id === item.product.id); 
