@@ -202,6 +202,23 @@ const db = {
       value: 0, 
       metadata: { active: false } 
     });
+  },
+
+  // Categories
+  getCategories: async () => {
+    const { data, error } = await supabase.from("categories").select("*").order("display_order");
+    if (error) { console.error("Error fetching categories:", error); return []; }
+    return data || [];
+  },
+  saveCategory: async (category) => {
+    const { error } = await supabase.from("categories").upsert(category);
+    if (error) { console.error("Error saving category:", error); return false; }
+    return true;
+  },
+  deleteCategory: async (id) => {
+    const { error } = await supabase.from("categories").delete().eq("id", id);
+    if (error) { console.error("Error deleting category:", error); return false; }
+    return true;
   }
 };
 
@@ -782,7 +799,7 @@ const OrderTrackingPage = ({ onBack, initialTracking }) => {
 // ═══════════════════════════════════════════════════════════════
 const BLANK_FORM = { name:"", category:"shirts", price:"", description:"", colors:[], sizes:{S:0,M:0,L:0,XL:0,XXL:0}, status:"published" };
 
-const ProductFormModal = ({ product, onSave, onClose }) => {
+const ProductFormModal = ({ product, onSave, onClose, categories }) => {
   const isEdit = !!product;
   const [form, setForm] = useState(isEdit
     ? { name:product.name, category:product.category, price:product.price, description:product.description, colors:[...product.colors], sizes:{...product.sizes}, status:product.status||"published" }
@@ -866,9 +883,10 @@ const ProductFormModal = ({ product, onSave, onClose }) => {
             <div>
               <label style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color:"var(--muted)", display:"block", marginBottom:8 }}>Category *</label>
               <select className="input-field" value={form.category} onChange={set("category")}>
-                <option value="shirts">Shirts</option>
-                <option value="pants">Pants</option>
-                <option value="hoodies">Hoodies</option>
+                <option value="">Select Category</option>
+                {categories.map(cat => (
+                  <option key={cat.id} value={cat.slug}>{cat.name}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -995,6 +1013,62 @@ const ArchiveModal = ({ product, onConfirm, onClose }) => (
 );
 
 // ─────────────────────────────────────────────
+// CATEGORY FORM MODAL
+// ─────────────────────────────────────────────
+const CategoryFormModal = ({ category, onSave, onClose }) => {
+  const isEdit = !!category;
+  const [name, setName] = useState(isEdit ? category.name : "");
+  const [slug, setSlug] = useState(isEdit ? category.slug : "");
+  const [description, setDescription] = useState(isEdit ? category.description || "" : "");
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!name.trim() || !slug.trim()) return;
+    setSaving(true);
+    const assembled = {
+      ...(isEdit ? category : {}),
+      name: name.trim(),
+      slug: slug.trim().toLowerCase().replace(/\s+/g, '-'),
+      description: description.trim(),
+      display_order: isEdit ? category.display_order : 99,
+    };
+    await onSave(assembled);
+    setSaving(false);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box" style={{ maxWidth: 400 }}>
+        <div style={{ padding: "22px 28px 18px", borderBottom: "1px solid var(--subtle)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="serif" style={{ fontSize: "22px", fontWeight: 400 }}>{isEdit ? "Edit Category" : "Add Category"}</div>
+          <button className="btn-icon" onClick={onClose}><X size={20} /></button>
+        </div>
+        <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 20 }}>
+          <div>
+            <label style={{ fontSize: "11px", letterSpacing: "2px", textTransform: "uppercase", color: "var(--muted)", display: "block", marginBottom: 8 }}>Category Name</label>
+            <input className="input-field" placeholder="e.g. Polos" value={name} onChange={e => { setName(e.target.value); if(!isEdit) setSlug(e.target.value.toLowerCase().replace(/\s+/g, '-')); }} />
+          </div>
+          <div>
+            <label style={{ fontSize: "11px", letterSpacing: "2px", textTransform:"uppercase", color:"var(--muted)", display:"block", marginBottom:8 }}>Slug (URL Name)</label>
+            <input className="input-field" placeholder="e.g. polos" value={slug} onChange={e => setSlug(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ fontSize: "11px", letterSpacing: "2px", textTransform:"uppercase", color:"var(--muted)", display:"block", marginBottom:8 }}>Description (Tagline)</label>
+            <textarea className="input-field" placeholder="e.g. Premium cotton polos for everyday luxury." value={description} onChange={e => setDescription(e.target.value)} />
+          </div>
+          <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+            <button className="btn-ghost" onClick={onClose} style={{ flex: 1 }}>Cancel</button>
+            <button className="btn-primary" onClick={handleSubmit} disabled={saving} style={{ flex: 2 }}>
+              {saving ? "Saving..." : isEdit ? "Save Changes" : "Add Category"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────
 // ENTRY SCREEN
 // ─────────────────────────────────────────────
 const EntryScreen = ({ onEnter }) => {
@@ -1094,7 +1168,7 @@ const AnnouncementBar = ({ announcement, onRemove }) => {
 // ─────────────────────────────────────────────
 // NAVBAR
 // ─────────────────────────────────────────────
-const Navbar = ({ cartCount, setPage, page, setCartOpen, user, isAdmin }) => {
+const Navbar = ({ cartCount, setPage, page, setCartOpen, user, isAdmin, categories }) => {
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => { const f = () => setScrolled(window.scrollY > 20); window.addEventListener("scroll", f); return () => window.removeEventListener("scroll", f); }, []);
   return (
@@ -1104,8 +1178,9 @@ const Navbar = ({ cartCount, setPage, page, setCartOpen, user, isAdmin }) => {
           <img src={logo} alt="VØLAN" style={{ height:32, width:"auto" }} />
         </button>
         <div style={{ display:"flex", gap:4 }}>
-          {["shop","pants","shirts","hoodies"].map(p => (
-            <button key={p} onClick={() => setPage(p)} style={{ background:"none", border:"none", cursor:"pointer", color:page===p?"var(--gold)":"var(--muted)", fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", fontFamily:"'DM Sans'", fontWeight:500, padding:"8px 16px", transition:"color .2s" }}>{p}</button>
+          <button onClick={() => setPage("shop")} style={{ background:"none", border:"none", cursor:"pointer", color:page==="shop"?"var(--gold)":"var(--muted)", fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", fontFamily:"'DM Sans'", fontWeight:500, padding:"8px 16px", transition:"color .2s" }}>All</button>
+          {categories.map(cat => (
+            <button key={cat.slug} onClick={() => setPage(cat.slug)} style={{ background:"none", border:"none", cursor:"pointer", color:page===cat.slug?"var(--gold)":"var(--muted)", fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", fontFamily:"'DM Sans'", fontWeight:500, padding:"8px 16px", transition:"color .2s" }}>{cat.name}</button>
           ))}
         </div>
         <div style={{ display:"flex", gap:4 }}>
@@ -1125,7 +1200,7 @@ const Navbar = ({ cartCount, setPage, page, setCartOpen, user, isAdmin }) => {
         </button>
       </nav>
       <nav className="mobile-nav" style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:100, height:64, background:"rgba(17,17,17,0.95)", backdropFilter:"blur(20px)", borderTop:"1px solid var(--subtle)", display:"none", alignItems:"center", justifyContent:"space-around" }}>
-        {[{icon:Home,label:"Home",p:"shop"},{icon:Grid,label:"Browse",p:"pants"},{icon:ShoppingBag,label:"Cart",p:null,badge:cartCount},{icon:User,label:"Account",p:"account"}].map(({icon:Icon,label,p,badge}) => (
+        {[{icon:Home,label:"Home",p:"shop"},{icon:Grid,label:"Browse",p:categories.length > 0 ? categories[0].slug : "shop"},{icon:ShoppingBag,label:"Cart",p:null,badge:cartCount},{icon:User,label:"Account",p:"account"}].map(({icon:Icon,label,p,badge}) => (
           <button key={label} onClick={p ? () => setPage(p) : () => setCartOpen(true)} style={{ background:"none", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:4, color:page===p?"var(--gold)":"var(--muted)", position:"relative" }}>
             <Icon size={22} />
             {badge > 0 && <span style={{ position:"absolute", top:-4, right:-4, width:14, height:14, background:"var(--gold)", borderRadius:"50%", fontSize:"8px", fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", color:"#000" }}>{badge}</span>}
@@ -1166,7 +1241,7 @@ const CurrencySwitcher = ({ currency, setCurrency }) => {
 // ─────────────────────────────────────────────
 // SHOP PAGE
 // ─────────────────────────────────────────────
-const ShopPage = ({ setPage, setSelectedProduct, currency, category, products }) => {
+const ShopPage = ({ setPage, setSelectedProduct, currency, category, products, categories }) => {
   const visible = (category ? products.filter(p => p.category === category) : products)
     .filter(p => !p.archived && p.status === "published");
   return (
@@ -1177,16 +1252,16 @@ const ShopPage = ({ setPage, setSelectedProduct, currency, category, products })
           {category ? category.charAt(0).toUpperCase()+category.slice(1) : "All Collections"}
         </h1>
         <p style={{ marginTop:12, fontSize:"14px", color:"var(--muted)", maxWidth:400 }}>
-          {category==="pants" && "Elevated trousers for the modern Lagos man and woman."}
-          {category==="shirts" && "Shirts that carry the spirit of Nigerian craftsmanship."}
-          {category==="hoodies" && "Heavyweight luxury fleece. Built for Lagos nights and beyond."}
-          {!category && "A curated selection of premium Nigerian fashion for the discerning wardrobe."}
+          {category ? (categories.find(c => c.slug === category)?.description || `A curated selection of premium ${category} for the discerning wardrobe.`) : "A curated selection of premium Nigerian fashion for the discerning wardrobe."}
         </p>
       </div>
       <div className="scroll-x" style={{ display:"flex", gap:8, marginBottom:40 }}>
-        {["all","pants","shirts","hoodies"].map(cat => (
-          <button key={cat} onClick={() => setPage(cat==="all" ? "shop" : cat)} className={category===cat||(!category&&cat==="all") ? "btn-primary" : "btn-ghost"} style={{ whiteSpace:"nowrap", padding:"10px 20px", fontSize:"11px" }}>
-            {cat.charAt(0).toUpperCase()+cat.slice(1)}
+        <button onClick={() => setPage("shop")} className={!category ? "btn-primary" : "btn-ghost"} style={{ whiteSpace:"nowrap", padding:"10px 20px", fontSize:"11px" }}>
+          All
+        </button>
+        {categories.map(cat => (
+          <button key={cat.slug} onClick={() => setPage(cat.slug)} className={category===cat.slug ? "btn-primary" : "btn-ghost"} style={{ whiteSpace:"nowrap", padding:"10px 20px", fontSize:"11px" }}>
+            {cat.name}
           </button>
         ))}
       </div>
@@ -2048,7 +2123,7 @@ const AccountPage = ({ user, onLogout, onLogin, onViewDetails }) => {
 // ═══════════════════════════════════════════════════════════════
 //  ADMIN PANEL (WITH REAL-TIME FEATURES)
 // ═══════════════════════════════════════════════════════════════
-const AdminPanel = ({ products, setProducts, user, updateAnnouncement }) => {
+const AdminPanel = ({ products, setProducts, user, updateAnnouncement, categories, setCategories }) => {
   const [loggedIn, setLoggedIn] = useState(false);
   const [pw, setPw] = useState("");
   const [pwErr, setPwErr] = useState(false);
@@ -2060,6 +2135,7 @@ const AdminPanel = ({ products, setProducts, user, updateAnnouncement }) => {
   const [productFilter, setProductFilter] = useState("active");
   const [orders, setOrders] = useState([]);
   const [expandedOrders, setExpandedOrders] = useState({});
+  const [catModal, setCatModal] = useState(null);
   const [metrics, setMetrics] = useState({ revenue:0, ordersCount:0, visitors:0 });
   const [shippingRates, setShippingRates] = useState({
     Lagos: 5000,
@@ -2258,6 +2334,49 @@ const AdminPanel = ({ products, setProducts, user, updateAnnouncement }) => {
     setToast({ message: "Announcement removed", type: "success" });
   };
 
+  const handleSaveCategory = async (cat) => {
+    const ok = await db.saveCategory(cat);
+    if (ok) {
+      const updated = categories.some(c => c.id === cat.id)
+        ? categories.map(c => c.id === cat.id ? cat : c)
+        : [...categories, cat].sort((a,b) => a.display_order - b.display_order);
+      setCategories(updated);
+      setCatModal(null);
+      setToast({ message: "Category saved successfully", type: "success" });
+    } else {
+      setToast({ message: "Failed to save category", type: "error" });
+    }
+  };
+
+  const handleDeleteCategory = async (id) => {
+    if (!confirm("Are you sure? Products in this category will no longer be visible on their specific category page.")) return;
+    const ok = await db.deleteCategory(id);
+    if (ok) {
+      setCategories(categories.filter(c => c.id !== id));
+      setToast({ message: "Category deleted", type: "success" });
+    }
+  };
+
+  const reorderCategory = async (idx, delta) => {
+    const newCats = [...categories];
+    const targetIdx = idx + delta;
+    if (targetIdx < 0 || targetIdx >= newCats.length) return;
+    
+    // Swap
+    const temp = newCats[idx];
+    newCats[idx] = newCats[targetIdx];
+    newCats[targetIdx] = temp;
+    
+    // Update display_order for all
+    const updated = newCats.map((c, i) => ({ ...c, display_order: i }));
+    setCategories(updated);
+    
+    // Save all to DB (sync)
+    for (const c of updated) {
+      await db.saveCategory(c);
+    }
+  };
+
   if (!loggedIn) return (
     <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", padding:40 }} className="fade-in">
       <div style={{ width:"100%", maxWidth:360, textAlign:"center" }}>
@@ -2296,7 +2415,8 @@ const AdminPanel = ({ products, setProducts, user, updateAnnouncement }) => {
         </div>
       )}
 
-      {formModal && <ProductFormModal product={formModal==="add" ? null : formModal} onSave={handleSave} onClose={() => setFormModal(null)} />}
+      {formModal && <ProductFormModal product={formModal==="add" ? null : formModal} onSave={handleSave} onClose={() => setFormModal(null)} categories={categories} />}
+      {catModal && <CategoryFormModal category={catModal === "add" ? null : catModal} onSave={handleSaveCategory} onClose={() => setCatModal(null)} />}
       {archiveModal && <ArchiveModal product={archiveModal} onConfirm={() => handleArchive(archiveModal)} onClose={() => setArchiveModal(null)} />}
 
       <div className="admin-sidebar" style={{ width:240, background:"var(--surface)", borderRight:"1px solid var(--subtle)", display:"flex", flexDirection:"column", padding:"28px 0", flexShrink:0 }}>
@@ -2304,7 +2424,7 @@ const AdminPanel = ({ products, setProducts, user, updateAnnouncement }) => {
           <div className="serif" style={{ fontSize:"20px", letterSpacing:"4px" }}>VØLAN</div>
           <div style={{ fontSize:"10px", letterSpacing:"2px", color:"var(--muted)", textTransform:"uppercase", marginTop:2 }}>Admin Panel</div>
         </div>
-        {[{id:"dashboard",icon:BarChart2,label:"Dashboard"},{id:"orders",icon:Package,label:"Orders"},{id:"products",icon:Grid,label:"Products"},{id:"announcements",icon:Megaphone,label:"Announce"},{id:"settings",icon:Settings,label:"Settings"}].map(({id,icon:Icon,label}) => (
+        {[{id:"dashboard",icon:BarChart2,label:"Dashboard"},{id:"orders",icon:Package,label:"Orders"},{id:"products",icon:Grid,label:"Products"},{id:"categories",icon:Grid,label:"Categories"},{id:"announcements",icon:Megaphone,label:"Announce"},{id:"settings",icon:Settings,label:"Settings"}].map(({id,icon:Icon,label}) => (
           <button key={id} onClick={() => setTab(id)} style={{ width:"100%", background:tab===id?"rgba(201,169,110,0.12)":"transparent", border:"none", borderLeft:`2px solid ${tab===id?"var(--gold)":"transparent"}`, padding:"12px 24px", cursor:"pointer", display:"flex", alignItems:"center", gap:12, color:tab===id?"var(--gold)":"var(--muted)", fontFamily:"'DM Sans'", fontSize:"13px", fontWeight:tab===id?600:400, transition:"all .2s" }}>
             <Icon size={18} /> <span className="admin-sidebar-label">{label}</span>
           </button>
@@ -2577,6 +2697,53 @@ const AdminPanel = ({ products, setProducts, user, updateAnnouncement }) => {
           </div>
         )}
 
+        {tab==="categories" && (
+          <div className="fade-in">
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:32 }}>
+              <div>
+                <div className="serif" style={{ fontSize:"28px", fontWeight:300 }}>Categories</div>
+                <div style={{ fontSize:"13px", color:"var(--muted)", marginTop:4 }}>Manage how products are grouped and ordered.</div>
+              </div>
+              <button className="btn-primary" onClick={() => setCatModal("add")}>
+                <Plus size={14} style={{ marginRight:8 }} /> Add Category
+              </button>
+            </div>
+
+            <div className="card" style={{ overflow:"hidden" }}>
+              {categories.length === 0 ? (
+                <div style={{ padding:40, textAlign:"center", color:"var(--muted)" }}>No categories found.</div>
+              ) : categories.map((cat, i) => (
+                <div key={cat.id} className="admin-row" style={{ padding:"16px 24px", borderBottom: i < categories.length - 1 ? "1px solid var(--subtle)" : "none", display:"flex", alignItems:"center", gap:20 }}>
+                  <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+                    <button className="btn-icon" style={{ padding:2 }} onClick={() => reorderCategory(i, -1)} disabled={i === 0}><ChevronUp size={14} /></button>
+                    <button className="btn-icon" style={{ padding:2 }} onClick={() => reorderCategory(i, 1)} disabled={i === categories.length - 1}><ChevronDown size={14} /></button>
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:"14px", fontWeight:600 }}>{cat.name}</div>
+                    <div style={{ fontSize:"11px", color:"var(--muted)", fontFamily:"monospace" }}>/{cat.slug}</div>
+                  </div>
+                  <div style={{ fontSize:"12px", color:"var(--muted)" }}>
+                    {products.filter(p => p.category === cat.slug).length} products
+                  </div>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <button className="btn-icon" onClick={() => setCatModal(cat)}><Edit2 size={16} /></button>
+                    <button className="btn-icon" style={{ color:"var(--red)" }} onClick={() => handleDeleteCategory(cat.id)}><Trash2 size={16} /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            <div style={{ marginTop:32, padding:20, background:"rgba(201,169,110,0.05)", borderRadius:12, border:"1px solid rgba(201,169,110,0.1)" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:"12px", color:"var(--gold)", fontWeight:600, marginBottom:8 }}>
+                <Lightbulb size={14} /> Tip for Reordering
+              </div>
+              <div style={{ fontSize:"12px", color:"var(--muted)", lineHeight:1.6 }}>
+                The order here determines the order of links in your Navbar and filters on the Shop page. "All" will always come first.
+              </div>
+            </div>
+          </div>
+        )}
+
         {tab==="settings" && (
           <div className="fade-in">
             <div className="serif" style={{ fontSize:"28px", fontWeight:300, marginBottom:32 }}>Shipping Settings</div>
@@ -2710,6 +2877,7 @@ export default function App() {
   const [user, setUser]             = useState(null);
   const [isAdmin, setIsAdmin]       = useState(false);
   const [announcement, setAnnouncement] = useState(null);
+  const [categories, setCategories] = useState([]);
   const [shippingRates, setShippingRates] = useState({
     Lagos: 5000,
     South_West: 7000,
@@ -2772,6 +2940,10 @@ export default function App() {
 
     db.getAnnouncement().then(data => {
       if (data) setAnnouncement(data);
+    });
+
+    db.getCategories().then(data => {
+      if (data && data.length > 0) setCategories(data);
     });
   }, []);
 
@@ -2851,7 +3023,7 @@ export default function App() {
   };
 
   if (!entered) return <><GlobalStyles /><EntryScreen onEnter={() => setEntered(true)} /></>;
-  if (page === "admin") return <><GlobalStyles /><AdminPanel products={products} setProducts={setProducts} user={user} updateAnnouncement={setAnnouncement} /></>;
+  if (page === "admin") return <><GlobalStyles /><AdminPanel products={products} setProducts={setProducts} user={user} updateAnnouncement={setAnnouncement} categories={categories} setCategories={setCategories} /></>;
 
   if (orderSuccess) return (
     <><GlobalStyles />
@@ -2863,12 +3035,12 @@ export default function App() {
     <>
       <GlobalStyles />
       <AnnouncementBar announcement={announcement} onRemove={() => setAnnouncement(null)} />
-      <Navbar cartCount={cartCount} setPage={nav} page={page} setCartOpen={setCartOpen} user={user} isAdmin={isAdmin} />
+      <Navbar cartCount={cartCount} setPage={nav} page={page} setCartOpen={setCartOpen} user={user} isAdmin={isAdmin} categories={categories} />
 
-      {page==="shop"    && <ShopPage setPage={setPage} setSelectedProduct={setSP} currency={currency} category={null} products={products} />}
-      {page==="pants"   && <ShopPage setPage={setPage} setSelectedProduct={setSP} currency={currency} category="pants" products={products} />}
-      {page==="shirts"  && <ShopPage setPage={setPage} setSelectedProduct={setSP} currency={currency} category="shirts" products={products} />}
-      {page==="hoodies" && <ShopPage setPage={setPage} setSelectedProduct={setSP} currency={currency} category="hoodies" products={products} />}
+      {page==="shop"    && <ShopPage setPage={setPage} setSelectedProduct={setSP} currency={currency} category={null} products={products} categories={categories} />}
+      {categories.map(cat => (
+        page === cat.slug && <ShopPage key={cat.id} setPage={setPage} setSelectedProduct={setSP} currency={currency} category={cat.slug} products={products} categories={categories} />
+      ))}
       {page==="product" && selectedProduct && <ProductPage product={selectedProduct} onBack={() => nav("shop")} addToCart={addToCart} currency={currency} />}
       {page==="track" && <OrderTrackingPage onBack={() => nav("shop")} initialTracking={trackingOrderInfo} />}
       {page==="checkout" && (<CheckoutPage cart={cart} currency={currency} onBack={() => setCartOpen(true)} user={user} shippingRates={shippingRates} onSuccess={async (noConflict) => { 
